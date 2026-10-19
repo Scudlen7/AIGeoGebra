@@ -147,3 +147,13 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# EdgeOne local deploy cache. The generated bundle embeds runtime API keys.
+.edgeone/
+
+# PocketBase local serve output
+.pb-serve.log
+.pb-serve.err
+
+# Scratch files
+.tmp-*.json
