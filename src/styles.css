@@ -463,3 +463,26 @@ textarea:focus {
 @media (max-width: 860px) {
   .stat-grid, .dash-grid, .inline-form { grid-template-columns: 1fr; display: flex; flex-direction: column; }
 }
+
+/* Compact workspace navigation: leave more height for the board. */
+header.workspace-head {
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  gap: 0.4rem 1rem;
+  padding: 0.55rem 1.2rem;
+}
+.workspace-head .workspace-identity { min-width: 0; }
+.workspace-head .eyebrow, .workspace-head > .lede { display: none; }
+.workspace-head h1 { font-size: 1.1rem; white-space: nowrap; }
+.workspace-head .session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 18rem; }
+.workspace-head .session-name, .workspace-head .sync-note { display: inline-block; margin: 0 0.5rem 0 0; font-size: 0.75rem; }
+.workspace-head .modes { grid-column: 2; grid-row: 1; justify-content: center; }
+.workspace-head .modes button { padding: 0.25rem 0.8rem; }
+.workspace-head .model-slot { grid-column: 3; grid-row: 1; }
+.workspace-head .btn { padding: 0.2rem 0.6rem; font-size: 0.75rem; }
+@media (max-width: 860px) {
+  header.workspace-head { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem; }
+  .workspace-head .modes { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
+  .workspace-head .model-slot { grid-column: 2; grid-row: 1; }
+  .workspace-head .session-name { max-width: 10rem; }
+  .workspace-head .model-switch select { max-width: 9rem; }
+}

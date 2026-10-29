@@ -350,3 +350,17 @@ test('a failed legacy restore offers a clean restart and allows another request'
   await waitFor(() => !document.querySelector('textarea').disabled)
   assert.match(document.querySelector('.transcript').textContent, /recovered successfully/)
 })
+
+test('successful automatic sync does not show a retry button while editing', async () => {
+  const state = await mount({ user: { id: 'alice' } })
+  const save = deferred()
+  state.saveHook = () => save.promise
+  const turn = await submit('ordinary edit', state)
+  turn.resolve('answer')
+  await waitFor(() => state.saves.length === 1)
+  assert.equal(button('重试同步'), undefined)
+  assert.equal(button('同步中…'), undefined)
+  save.resolve({ id: 'saved', name: 'Saved' })
+  await waitFor(() => document.body.textContent.includes('已同步到云端'))
+  assert.equal(button('重试同步'), undefined)
+})
