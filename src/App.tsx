@@ -50,6 +50,7 @@ export function App() {
   const [error, setError] = createSignal('')
   const [syncNote, setSyncNote] = createSignal({ ok: false, text: '' })
   const [pendingModes, setPendingModes] = createSignal<Partial<Record<CalculatorMode, boolean>>>({})
+  const [retryModes, setRetryModes] = createSignal<Partial<Record<CalculatorMode, boolean>>>({})
   const [syncing, setSyncing] = createSignal(false)
   const [report, setReport] = createSignal<ConstructionReport | null>(null)
   const [attempts, setAttempts] = createSignal(0)
@@ -185,12 +186,14 @@ export function App() {
       setCloudSlots((slots) => ({ ...slots, [target]: { ...slots[target], ...saved } }))
       const unchanged = revision === (revisions.get(target) ?? 0)
       setPendingModes((current) => ({ ...current, [target]: !unchanged }))
+      setRetryModes((current) => ({ ...current, [target]: false }))
       persistPending(target)
       if (target === activeMode()) setSyncNote({ ok: unchanged, text: unchanged ? '已同步到云端' : '有新的修改待同步' })
       if (!unchanged) scheduleSync(target)
     } catch (reason) {
-      if (owner === ownerId() && generation === cloudGeneration && target === activeMode()) {
-        setSyncNote({ ok: false, text: readableError(reason, '云端同步失败，已保留本机待同步副本') })
+      if (owner === ownerId() && generation === cloudGeneration) {
+        setRetryModes((current) => ({ ...current, [target]: true }))
+        if (target === activeMode()) setSyncNote({ ok: false, text: readableError(reason, '云端同步失败，已保留本机待同步副本') })
       }
     } finally {
       if (owner === ownerId() && generation === cloudGeneration) {
@@ -211,6 +214,7 @@ export function App() {
     setCloudSlots((currentSlots) => ({ ...currentSlots, [target]: slot }))
     cloudLoaded.add(target)
     if (pending) {
+      setRetryModes((current) => ({ ...current, [target]: true }))
       setPendingModes((current) => ({ ...current, [target]: true }))
       if (target === activeMode()) setSyncNote({ ok: false, text: '已恢复本机待同步副本，请重试同步' })
     }
@@ -339,6 +343,7 @@ export function App() {
       saving.clear()
       setCloudSlots(emptyCloudMap())
       setPendingModes({})
+      setRetryModes({})
       setSyncing(false)
       setRunning(false)
       setDraft('')
@@ -383,6 +388,7 @@ export function App() {
             setCloudSlots((currentSlots) => ({ ...currentSlots, [restored.mode]: restored }))
             cloudLoaded.add(restored.mode)
             if (pending) {
+              setRetryModes((current) => ({ ...current, [restored.mode]: true }))
               setPendingModes((current) => ({ ...current, [restored.mode]: true }))
               setSyncNote({ ok: false, text: pending.id === sessionId ? '已恢复本机待同步副本，请重试同步' : '该模式有未同步修改，已优先恢复本机副本，请先同步后再打开其他会话' })
             }
@@ -522,7 +528,7 @@ export function App() {
     <div class="shell" data-mode={activeMode()}>
       <AccountBar />
       <header class="workspace-head">
-        <div>
+        <div class="workspace-identity">
           <p class="eyebrow">{current().eyebrow}</p>
           <h1>{current().title}</h1>
           <Show when={loggedIn()}>
@@ -531,7 +537,7 @@ export function App() {
           <Show when={syncNote().text}>
             <p class="sync-note" classList={{ ok: syncNote().ok, bad: !syncNote().ok }}>{syncNote().text}</p>
           </Show>
-          <Show when={loggedIn() && pendingModes()[activeMode()]}>
+          <Show when={loggedIn() && pendingModes()[activeMode()] && retryModes()[activeMode()]}>
             <button class="btn ghost" type="button" disabled={running() || syncing()} onClick={() => { captureWorkspace(); void syncCloud() }}>
               {syncing() ? '同步中…' : '重试同步'}
             </button>
