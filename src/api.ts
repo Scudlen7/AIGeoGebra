@@ -172,11 +172,11 @@ export async function loadCloudSession(id: string) {
   return fromSessionRecord(item as unknown as Record<string, unknown>)
 }
 
-export async function saveCloudSession(slot: CloudSession, messages: ChatTurn[], report: ConstructionReport | null) {
+export async function saveCloudSession(slot: CloudSession, messages: ChatTurn[], report: ConstructionReport | null, owner = authUser()?.id) {
   const user = authUser()
-  if (!user) throw new Error('请先登录')
+  if (!user || user.id !== owner) throw new Error('登录账号已改变，请重新同步')
   const name = slot.id ? slot.name || '未命名会话' : sessionTitle(messages.find((item) => item.role === 'user')?.content || '')
-  const payload = { name, mode: slot.mode, messages, input: '', report }
+  const payload = { name, mode: slot.mode, messages, input: slot.input, report }
   if (!slot.id) {
     const created = await pb.collection('sessions').create({ ...payload, owner: user.id })
     return { id: created.id, name: String(created.name || name) }

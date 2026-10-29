@@ -18,6 +18,7 @@ export type ConstructionReport = {
   results: CommandResult[]
   objects: GgbObject[]
   hint: string
+  boardXml?: string
 }
 
 export type ChatTurn = {
