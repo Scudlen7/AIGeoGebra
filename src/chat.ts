@@ -88,6 +88,7 @@ export async function runTurn(options: {
             .describe('有序的 GeoGebra 输入栏命令，英文命令名，一条命令一个字符串'),
         }),
         execute: async ({ commands }) => {
+          options.signal.throwIfAborted()
           const report = executeCommands(commands, options.mode, {
             angleUnit: options.angleUnit,
             enforceAngle: true,
@@ -100,6 +101,7 @@ export async function runTurn(options: {
   })
 
   for await (const part of result.fullStream) {
+    options.signal.throwIfAborted()
     if (part.type === 'text-delta') {
       text += part.text
       options.onText(text)

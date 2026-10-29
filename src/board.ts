@@ -2,6 +2,8 @@ import { commandProblem } from './policy'
 import { probabilitySelection } from './probability'
 import type { AngleUnit, CalculatorMode, CommandResult, ConstructionReport, GgbObject } from './types'
 
+type GgbListener = (...args: unknown[]) => void
+
 type GgbApi = {
   evalCommand: (command: string) => boolean
   setErrorDialogsActive: (active: boolean) => void
@@ -11,6 +13,7 @@ type GgbApi = {
   getObjectType: (name: string) => string
   getCommandString: (name: string, localized?: boolean) => string
   getValueString: (name: string) => string
+  getValue?: (name: string) => number
   getVisible?: (name: string) => boolean
   reset: () => void
   setSize: (width: number, height: number) => void
@@ -23,6 +26,20 @@ type GgbApi = {
   setPerspective?: (perspective: string) => void
   getPerspectiveXML?: () => string
   setRounding?: (digits: string) => void
+  registerAddListener?: (listener: GgbListener) => void
+  unregisterAddListener?: (listener: GgbListener) => void
+  registerRemoveListener?: (listener: GgbListener) => void
+  unregisterRemoveListener?: (listener: GgbListener) => void
+  registerUpdateListener?: (listener: GgbListener) => void
+  unregisterUpdateListener?: (listener: GgbListener) => void
+  registerRenameListener?: (listener: GgbListener) => void
+  unregisterRenameListener?: (listener: GgbListener) => void
+  registerClearListener?: (listener: GgbListener) => void
+  unregisterClearListener?: (listener: GgbListener) => void
+  registerStoreUndoListener?: (listener: GgbListener) => void
+  unregisterStoreUndoListener?: (listener: GgbListener) => void
+  registerClientListener?: (listener: GgbListener) => void
+  unregisterClientListener?: (listener: GgbListener) => void
 }
 
 const SCRIPT_URL = 'https://www.geogebra.org/apps/deployggb.js'
@@ -42,6 +59,8 @@ let activePerspective = ''
 let mountToken = 0
 let slot: HTMLDivElement | null = null
 let scriptReady: Promise<void> | null = null
+let restoring = false
+const boardListeners = new Set<() => void>()
 
 function loadScript() {
   if (window.GGBApplet) return Promise.resolve()
@@ -70,12 +89,79 @@ export function currentAppName() {
 }
 
 export function unmountBoard() {
+  for (const stop of [...boardListeners]) stop()
   mountToken += 1
   api = null
   activeAppName = ''
   activePerspective = ''
   slot?.remove()
   slot = null
+}
+
+export function captureBoard(): string | null {
+  if (!api?.getXML) return null
+  try {
+    return api.getXML() || null
+  } catch {
+    return null
+  }
+}
+
+export function restoreBoard(xml: string) {
+  if (!api?.setXML) throw new Error('画板尚未就绪，无法恢复构造。')
+  if (typeof xml !== 'string' || !/<geogebra\b/.test(xml) || !/<\/geogebra>\s*$/.test(xml)) {
+    throw new Error('保存的画板数据不完整，无法恢复。')
+  }
+  restoring = true
+  try {
+    api.setXML(xml)
+    api.setErrorDialogsActive(false)
+    if (activePerspective) api.setPerspective?.(activePerspective)
+    if (isProbabilityBoard()) api.setRounding?.('5')
+    hideOnScreenKeyboard()
+  } finally {
+    restoring = false
+  }
+}
+
+export function onBoardChange(listener: () => void): () => void {
+  const target = api
+  if (!target) return () => {}
+  let active = true
+  const notify = () => {
+    if (active && api === target && !restoring) listener()
+  }
+  const clientChanged: GgbListener = (event) => {
+    const type = event && typeof event === 'object' ? (event as { type?: string }).type : ''
+    if (type && ['viewChanged2D', 'viewChanged3D', 'dragEnd', 'undo', 'redo', 'updateStyle', 'perspectiveChange'].includes(type)) notify()
+  }
+  const cleared = () => {
+    // GeoGebra removes update listeners when setXML/reset clears a construction.
+    queueMicrotask(() => {
+      if (!active || api !== target) return
+      target.unregisterUpdateListener?.(notify)
+      target.registerUpdateListener?.(notify)
+    })
+    notify()
+  }
+  const registrations = [
+    ['registerAddListener', 'unregisterAddListener', notify],
+    ['registerRemoveListener', 'unregisterRemoveListener', notify],
+    ['registerUpdateListener', 'unregisterUpdateListener', notify],
+    ['registerRenameListener', 'unregisterRenameListener', notify],
+    ['registerClearListener', 'unregisterClearListener', cleared],
+    ['registerStoreUndoListener', 'unregisterStoreUndoListener', notify],
+    ['registerClientListener', 'unregisterClientListener', clientChanged],
+  ] as const
+  for (const [register, , callback] of registrations) target[register]?.call(target, callback)
+  const stop = () => {
+    if (!active) return
+    active = false
+    boardListeners.delete(stop)
+    for (const [, unregister, callback] of registrations) target[unregister]?.call(target, callback)
+  }
+  boardListeners.add(stop)
+  return stop
 }
 
 export function mountBoard(host: HTMLElement, options: BoardOptions): Promise<void> {
@@ -106,6 +192,7 @@ export function mountBoard(host: HTMLElement, options: BoardOptions): Promise<vo
     }, 30000)
 
     const start = () => {
+      if (settled) return
       if (token !== mountToken) {
         finish(() => resolve())
         return
@@ -132,6 +219,7 @@ export function mountBoard(host: HTMLElement, options: BoardOptions): Promise<vo
           ...(options.perspective ? { perspective: options.perspective } : {}),
           scaleContainerClass: 'board-host',
           appletOnLoad: (loaded: GgbApi) => {
+            if (settled) return
             if (token !== mountToken) {
               finish(() => resolve())
               return
@@ -198,23 +286,29 @@ function isProbabilityBoard() {
 
 function syncProbabilityCalculator(commands: string[]) {
   if (!api?.getXML || !api.setXML || !isProbabilityBoard()) return
-  const selection = probabilitySelection(commands)
+  const known = new Set(readNames())
+  const selection = probabilitySelection(commands, (name) => {
+    if (!known.has(name)) return null
+    const value = api?.getValue?.(name)
+    return typeof value === 'number' && Number.isFinite(value) ? value : null
+  })
   if (!selection) return
   try {
     const xml = api.getXML()
-    if (!xml.includes('<probabilityCalculator>')) return
+    if (!/<probabilityCalculator\b/.test(xml)) return
     let next = xml.replace(
-      /<distribution type="[^"]*" isCumulative="[^"]*" isOverlayActive="[^"]*" parameters="[^"]*"\/>/,
+      /<distribution\b[^>]*\/>/,
       `<distribution type="${selection.type}" isCumulative="${selection.cumulative}" isOverlayActive="false" parameters="${selection.parameters}"/>`,
     )
     if (selection.interval) {
       next = next.replace(
-        /<interval mode="[^"]*" low="[^"]*" high="[^"]*"\/>/,
+        /<interval\b[^>]*\/>/,
         `<interval mode="${selection.interval.mode}" low="${selection.interval.low}" high="${selection.interval.high}"/>`,
       )
     }
     if (next !== xml) {
       api.setXML(next)
+      if (activePerspective) api.setPerspective?.(activePerspective)
       api.setRounding?.('5')
     }
   } catch {
@@ -380,11 +474,27 @@ export function executeCommands(
   mode?: CalculatorMode,
   options?: { angleUnit?: AngleUnit; enforceAngle?: boolean },
 ): ConstructionReport {
+  return runCommands(commands.flatMap(normalizeCommand).slice(0, 24), mode, options)
+}
+
+export function restoreCommands(
+  commands: string[],
+  mode?: CalculatorMode,
+  options?: { angleUnit?: AngleUnit; enforceAngle?: boolean },
+): ConstructionReport {
+  return runCommands(commands.flatMap(normalizeCommand), mode, options)
+}
+
+function runCommands(
+  commands: string[],
+  mode?: CalculatorMode,
+  options?: { angleUnit?: AngleUnit; enforceAngle?: boolean },
+): ConstructionReport {
   const known = new Set(listObjects().map((object) => object.name))
   const results: CommandResult[] = []
   let failed = false
 
-  for (const command of commands.flatMap(normalizeCommand).slice(0, 24)) {
+  for (const command of commands) {
     if (failed) {
       results.push({ command, status: 'skipped', labels: [], error: null })
       continue

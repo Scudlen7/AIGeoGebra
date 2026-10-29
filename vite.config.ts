@@ -60,10 +60,14 @@ function serverApi(env: Record<string, string>): Plugin {
           }
           const method = req.method || 'GET'
           const raw = method === 'GET' || method === 'HEAD' ? undefined : await readBody(req)
+          const controller = new AbortController()
+          req.on('aborted', () => controller.abort())
+          res.on('close', () => controller.abort())
           const request = new Request(`http://127.0.0.1${req.url}`, {
             method,
             headers,
             body: raw,
+            signal: controller.signal,
           })
           let response: Response
           if (path === '/api/status') response = statusResponse(env)

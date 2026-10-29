@@ -1,4 +1,5 @@
 import type { CalculatorMode, ChatTurn, ConstructionReport, ModeSession, SessionMap } from './types'
+import type { CloudSession } from './api'
 
 export const sessionStorageKey = 'aiggb.sessions'
 export const modeStorageKey = 'aiggb.mode'
@@ -47,6 +48,29 @@ export function normalizeSessions(value: unknown): SessionMap {
     }
   }
   return sessions
+}
+
+// Unsent cloud changes stay separate from guest sessions and from other accounts.
+function pendingKey(owner: string, mode: CalculatorMode) {
+  return `aiggb.cloud.${owner}.${mode}`
+}
+
+export function readPendingCloud(owner: string, mode: CalculatorMode): CloudSession | null {
+  const value = readJson(pendingKey(owner, mode))
+  if (!value || typeof value !== 'object') return null
+  const record = value as Partial<CloudSession>
+  if (record.mode !== mode) return null
+  return {
+    ...normalizeSessions({ [mode]: record })[mode],
+    mode,
+    id: typeof record.id === 'string' && record.id ? record.id : null,
+    name: typeof record.name === 'string' ? record.name : '',
+  }
+}
+
+export function writePendingCloud(owner: string, mode: CalculatorMode, slot: CloudSession | null) {
+  if (slot) localStorage.setItem(pendingKey(owner, mode), JSON.stringify(slot))
+  else localStorage.removeItem(pendingKey(owner, mode))
 }
 
 export function clearLocalAiggbCache() {

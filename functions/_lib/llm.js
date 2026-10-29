@@ -141,6 +141,7 @@ export async function proxyLlm(request, env) {
       method: request.method,
       headers,
       body,
+      signal: request.signal,
     })
   } catch (reason) {
     return json({ error: 'LLM 请求失败', detail: scrub(reason instanceof Error ? reason.message : String(reason)) }, 502)
@@ -203,6 +204,9 @@ export async function proxyLlm(request, env) {
       } catch (reason) {
         controller.error(reason)
       }
+    },
+    cancel(reason) {
+      return reader.cancel(reason)
     },
   })
 
