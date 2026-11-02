@@ -157,3 +157,7 @@ vite.config.ts.timestamp-*
 
 # Scratch files
 .tmp-*.json
+
+# Browser acceptance artifacts
+test-results/
+playwright-report/

@@ -475,6 +475,8 @@ header.workspace-head {
 .workspace-head h1 { font-size: 1.1rem; white-space: nowrap; }
 .workspace-head .session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 18rem; }
 .workspace-head .session-name, .workspace-head .sync-note { display: inline-block; margin: 0 0.5rem 0 0; font-size: 0.75rem; }
+.workspace-head .session-name { display: block; max-width: min(18rem, 100%); }
+.workspace-head .sync-note { display: block; height: 1.5em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-head .modes { grid-column: 2; grid-row: 1; justify-content: center; }
 .workspace-head .modes button { padding: 0.25rem 0.8rem; }
 .workspace-head .model-slot { grid-column: 3; grid-row: 1; }
@@ -485,4 +487,10 @@ header.workspace-head {
   .workspace-head .model-slot { grid-column: 2; grid-row: 1; }
   .workspace-head .session-name { max-width: 10rem; }
   .workspace-head .model-switch select { max-width: 9rem; }
+}
+@media (max-width: 600px) {
+  header.workspace-head { grid-template-columns: minmax(0, 1fr); }
+  .workspace-head .model-slot { grid-column: 1; grid-row: 3; }
+  .workspace-head .session-name { max-width: 100%; }
+  .workspace-head .model-switch select { min-width: 0; max-width: none; flex: 1; }
 }

@@ -660,6 +660,8 @@ OpenAI 兼容接口的同源转发代理。
 
 ## 11. 功能完成度一览
 
+2026-11-02 第二阶段本地验收及复验命令见 [第二阶段验收记录](docs/stage-2.md)。新增 `npm run test:browser`、`npm run test:integration` 和可选的 `npm run test:math`，GitHub Actions 自动运行不依赖模型密钥的检查。
+
 > 本 README 描述的是项目交付时的**预期形态**。以下清单标出已完成与待完成项。
 
 **已完成：**
