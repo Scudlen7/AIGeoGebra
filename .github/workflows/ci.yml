@@ -1,0 +1,39 @@
+name: Tests and build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - name: Install isolated PocketBase test binary
+        run: |
+          curl --fail --location --retry 3 https://github.com/pocketbase/pocketbase/releases/download/v0.40.4/pocketbase_0.40.4_linux_amd64.zip --output "$RUNNER_TEMP/pocketbase.zip"
+          unzip -q "$RUNNER_TEMP/pocketbase.zip" -d "$RUNNER_TEMP/pocketbase-test"
+          chmod +x "$RUNNER_TEMP/pocketbase-test/pocketbase"
+      - run: npm run test:integration
+        env:
+          PB_BINARY: ${{ runner.temp }}/pocketbase-test/pocketbase
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-details
+          path: test-results/
+          retention-days: 7

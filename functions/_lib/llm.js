@@ -71,10 +71,10 @@ export async function testModel(request, env) {
   }
 }
 
-function readUsage(line) {
+function readUsage(line, jsonResponse = false) {
   const trimmed = line.trim()
-  if (!trimmed.startsWith('data:')) return null
-  const payload = trimmed.slice(5).trim()
+  if (!jsonResponse && !trimmed.startsWith('data:')) return null
+  const payload = jsonResponse ? trimmed : trimmed.slice(5).trim()
   if (!payload || payload === '[DONE]') return null
   try {
     const jsonBody = JSON.parse(payload)
@@ -169,6 +169,7 @@ export async function proxyLlm(request, env) {
 
   const reader = upstreamResponse.body.getReader()
   const decoder = new TextDecoder()
+  const jsonResponse = (upstreamResponse.headers.get('content-type') || '').includes('application/json')
   let pending = ''
   let usage = null
   const stream = new ReadableStream({
@@ -176,8 +177,9 @@ export async function proxyLlm(request, env) {
       try {
         const { done, value } = await reader.read()
         if (done) {
+          pending += decoder.decode()
           if (pending) {
-            const found = readUsage(pending)
+            const found = readUsage(pending, jsonResponse)
             if (found) usage = found
           }
           controller.close()
@@ -194,11 +196,13 @@ export async function proxyLlm(request, env) {
           return
         }
         pending += decoder.decode(value, { stream: true })
-        const lines = pending.split('\n')
-        pending = lines.pop() || ''
-        for (const line of lines) {
-          const found = readUsage(line)
-          if (found) usage = found
+        if (!jsonResponse) {
+          const lines = pending.split('\n')
+          pending = lines.pop() || ''
+          for (const line of lines) {
+            const found = readUsage(line)
+            if (found) usage = found
+          }
         }
         controller.enqueue(value)
       } catch (reason) {

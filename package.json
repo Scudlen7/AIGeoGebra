@@ -6,6 +6,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test tests/browser/layout.spec.js",
+    "test:math": "playwright test tests/browser/math.spec.js",
+    "test:integration": "node --test tests/integration/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -30,6 +33,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
+    "@playwright/test": "1.64.1",
     "babel-preset-solid": "1.9.15",
     "esbuild": "^0.28.2",
     "happy-dom": "^21.0.4",

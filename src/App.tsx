@@ -534,8 +534,8 @@ export function App() {
           <Show when={loggedIn()}>
             <p class="session-name">当前会话 {shownName()}</p>
           </Show>
-          <Show when={syncNote().text}>
-            <p class="sync-note" classList={{ ok: syncNote().ok, bad: !syncNote().ok }}>{syncNote().text}</p>
+          <Show when={loggedIn() || syncNote().text}>
+            <p class="sync-note" title={syncNote().text} classList={{ ok: syncNote().ok, bad: !syncNote().ok }}>{syncNote().text}</p>
           </Show>
           <Show when={loggedIn() && pendingModes()[activeMode()] && retryModes()[activeMode()]}>
             <button class="btn ghost" type="button" disabled={running() || syncing()} onClick={() => { captureWorkspace(); void syncCloud() }}>
