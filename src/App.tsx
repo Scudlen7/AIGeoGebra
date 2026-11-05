@@ -7,6 +7,7 @@ import { makePersisted } from '@solid-primitives/storage'
 import { For, Show, createSignal, onCleanup, onMount, type Signal } from 'solid-js'
 import { TransitionGroup } from 'solid-transition-group'
 import { AccountBar } from './AccountBar'
+import { Icon } from './Icon'
 import { blankCloud, fetchModels, loadCloudSession, readableError, saveCloudSession, latestCloudSession, type CloudSession, type PublicModel } from './api'
 import { captureBoard, getApi, listObjects, mountBoard, onBoardChange, resetBoard, resizeBoard, restoreBoard, restoreCommands, setCoordinateSystem, unmountBoard } from './board'
 import { fetchLlmStatus, hasFailure, runTurn } from './chat'
@@ -47,6 +48,7 @@ export function App() {
   const [cloudSlots, setCloudSlots] = createSignal(emptyCloudMap())
   const [draft, setDraft] = createSignal('')
   const [running, setRunning] = createSignal(false)
+  const [mobileView, setMobileView] = createSignal<'chat' | 'board'>('chat')
   const [error, setError] = createSignal('')
   const [syncNote, setSyncNote] = createSignal({ ok: false, text: '' })
   const [pendingModes, setPendingModes] = createSignal<Partial<Record<CalculatorMode, boolean>>>({})
@@ -574,8 +576,16 @@ export function App() {
         </nav>
       </header>
 
-      <main class="workspace">
+      <div class="mobile-work-tabs" aria-label="工作区视图">
+        <button class="btn ghost" classList={{ active: mobileView() === 'chat' }} aria-pressed={mobileView() === 'chat'} onClick={() => setMobileView('chat')}><Icon name="chat-circle-text" />对话</button>
+        <button class="btn ghost" classList={{ active: mobileView() === 'board' }} aria-pressed={mobileView() === 'board'} onClick={() => setMobileView('board')}><Icon name="squares-four" />画板</button>
+      </div>
+      <main id="main-content" class="workspace" data-mobile={mobileView()}>
         <section class="conversation">
+          <div class="conversation-heading"><Icon name="chat-circle-text" />与数学助手对话</div>
+          <div class="rule" />
+          <details class="example-picker">
+          <summary>试试示例问题</summary>
           <div class="examples">
             <For each={current().examples}>
               {(example) => (
@@ -589,20 +599,21 @@ export function App() {
               )}
             </For>
           </div>
+          </details>
 
           <div class="transcript">
             <Show when={activeMode()} keyed>
               {(id) => (
                 <>
                   <Show when={messagesFor(id).length === 0 && !draft()}>
-                    <p class="empty">{modeDefinition(id).empty}</p>
+                    <div class="welcome"><Icon name="function" /><h2>今天，想探索什么？</h2><p class="lede">{modeDefinition(id).empty}</p><div class="examples"><button disabled={running() || !boardReady() || !llm().configured} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div></div>
                   </Show>
                   <TransitionGroup name="msg">
                     <For each={messagesFor(id)}>
                       {(message) => (
                         <article class={message.role}>
                           <Show when={message.role === 'assistant'} fallback={<p>{message.content}</p>}>
-                            <div class="md" innerHTML={renderMarkdown(message.content)} />
+                            <div class="assistant-label"><Icon name="function" />数学助手</div><div class="md" innerHTML={renderMarkdown(message.content)} />
                           </Show>
                         </article>
                       )}
@@ -621,7 +632,7 @@ export function App() {
             </Show>
             <Show when={!llm().configured}>
               <p class="banner">
-                复制 .env.example 为 .env，填入 LLM_BASE_URL、LLM_API_KEY 和 LLM_MODEL，然后重新运行 npm run dev。
+                数学助手暂未就绪，请稍后重试或联系管理员。你仍可直接使用画板。
               </p>
             </Show>
           </div>
@@ -632,7 +643,9 @@ export function App() {
               void submit()
             }}
           >
+            <label class="composer-label" for="math-prompt">描述你的问题</label>
             <textarea
+              id="math-prompt"
               ref={inputEl}
               rows={3}
               value={activeSession().input}
@@ -645,6 +658,8 @@ export function App() {
               onKeyDown={onKeyDown}
             />
             <div class="actions">
+              <span class="input-hint">Enter 发送 · Shift + Enter 换行</span>
+              <Show when={running()}><button type="button" class="ghost" onClick={() => { controller?.abort(); renderDraft.clear(); setDraft(''); setRunning(false) }}>停止</button></Show>
               <button type="button" class="ghost" onClick={() => void clearConstruction()} disabled={current().ready && !boardReady()}>
                 清空
               </button>
@@ -660,6 +675,7 @@ export function App() {
 
         <section class="stage">
           <div class="stage-tools">
+            <span class="stage-label">{current().label}画板</span>
             <Show when={activeMode() === 'geometry'}>
               <button
                 type="button"
@@ -689,10 +705,12 @@ export function App() {
               {showCommands() ? `隐藏${current().logLabel}` : `显示${current().logLabel}`}
             </button>
           </div>
+          <div class="rule" />
           <div class="board-frame" ref={setFrame}>
             <div class="board-host" ref={host} />
             <Show when={current().ready && !boardReady()}>
               <div class="board-state">
+                <Show when={!boardError()}><div class="skeleton" /><div class="skeleton short" /></Show>
                 <p>{boardError() || '正在加载画板…'}</p>
                 <Show when={boardError()}>
                   <button class="btn ghost" type="button" onClick={() => void loadBoard(activeMode())}>重新加载画板</button>
@@ -757,6 +775,7 @@ export function App() {
           </Show>
         </section>
       </main>
+      <footer class="workspace-footer"><span>{loggedIn() ? '登录会话 · 自动保存到云端' : '访客模式 · 会话保存在本机'}</span><span>四种模式，分别探索</span></footer>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { A, useNavigate, useSearchParams } from '@solidjs/router'
 import { createSignal } from 'solid-js'
 import { AccountBar } from '../AccountBar'
+import { AuthLayout } from '../AuthLayout'
 import { readableError, safeRedirect } from '../api'
 import { pb } from '../pb'
 
@@ -36,8 +37,8 @@ export function Login() {
   return (
     <div class="subpage">
       <AccountBar />
-      <main class="auth-card">
-        <h1>登录</h1>
+      <AuthLayout>
+        <h1>欢迎回来</h1>
         <p class="lede">登录后，新的作图会话会保存到云端。未登录时的本地会话不会上传。</p>
         <form class="stack-form" onSubmit={(event) => void submit(event)}>
           <label>
@@ -55,7 +56,7 @@ export function Login() {
           <button class="btn" type="submit" disabled={busy()}>{busy() ? '登录中…' : '登录'}</button>
           {error() ? <p class="banner">{error()}</p> : null}
         </form>
-      </main>
+      </AuthLayout>
     </div>
   )
 }

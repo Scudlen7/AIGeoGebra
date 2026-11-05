@@ -1,6 +1,7 @@
 import { A, useNavigate, useSearchParams } from '@solidjs/router'
 import { createSignal, onCleanup } from 'solid-js'
 import { AccountBar } from '../AccountBar'
+import { AuthLayout } from '../AuthLayout'
 import { postAuth, readableError, retryAfterOf, safeRedirect } from '../api'
 import { pb } from '../pb'
 
@@ -93,7 +94,7 @@ export function Register() {
   return (
     <div class="subpage">
       <AccountBar />
-      <main class="auth-card">
+      <AuthLayout>
         <h1>注册</h1>
         <p class="lede">验证码会发到邮箱，页面和接口都不会显示验证码。</p>
         <form class="stack-form" onSubmit={(event) => void submit(event)}>
@@ -130,7 +131,7 @@ export function Register() {
           {error() ? <p class="banner">{error()}</p> : null}
           <p class="form-links"><A href="/login">已有账号，去登录</A></p>
         </form>
-      </main>
+      </AuthLayout>
     </div>
   )
 }

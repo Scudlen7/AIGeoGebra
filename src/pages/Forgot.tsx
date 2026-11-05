@@ -1,6 +1,7 @@
 import { A } from '@solidjs/router'
 import { createSignal, onCleanup, Show } from 'solid-js'
 import { AccountBar } from '../AccountBar'
+import { AuthLayout } from '../AuthLayout'
 import { postAuth, readableError, retryAfterOf } from '../api'
 
 export function Forgot() {
@@ -84,7 +85,7 @@ export function Forgot() {
   return (
     <div class="subpage">
       <AccountBar />
-      <main class="auth-card">
+      <AuthLayout>
         <h1>找回密码</h1>
         <ol class="steps">
           <li classList={{ on: step() === 1 }}>填写邮箱</li>
@@ -128,7 +129,7 @@ export function Forgot() {
           <A class="btn" href="/login">去登录</A>
         </Show>
         {error() ? <p class="banner">{error()}</p> : null}
-      </main>
+      </AuthLayout>
     </div>
   )
 }

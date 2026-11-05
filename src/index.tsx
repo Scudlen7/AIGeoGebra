@@ -9,6 +9,7 @@ import { Login } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { Register } from './pages/Register'
 import { Settings } from './pages/Settings'
+import { NotFound } from './pages/NotFound'
 import { initPb } from './pb'
 import './styles.css'
 
@@ -37,6 +38,7 @@ async function boot() {
         <Route path="/privacy" component={Privacy} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/settings" component={Settings} />
+        <Route path="*404" component={NotFound} />
       </Router>
     ),
     mount,
