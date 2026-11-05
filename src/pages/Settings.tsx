@@ -174,16 +174,19 @@ export function Settings() {
   return (
     <div class="subpage">
       <AccountBar />
-      <main class="page">
+      <main id="main-content" class="page">
         <div class="page-head">
-          <h1>设置</h1>
-          <p>模型由服务端环境变量决定。这里不能填写、查看、复制或重置密钥。</p>
+          <h1>让工作区适合你</h1>
+          <p>管理模型、账户和探索记录。</p>
         </div>
         {notice() ? <p class="note">{notice()}</p> : null}
         {error() ? <p class="banner">{error()}</p> : null}
 
-        <section class="card">
-          <h2>模型</h2>
+        <div class="settings-layout">
+        <nav class="settings-nav" aria-label="设置分区"><a class="nav-item" href="#model">模型偏好</a><a class="nav-item" href="#account">账户安全</a><a class="nav-item" href="#data">数据管理</a></nav>
+        <div class="settings-content">
+        <section class="card" id="model">
+          <h2>模型偏好</h2>
           <Show when={models().length > 0} fallback={<p class="empty">模型未配置</p>}>
             <label>
               当前模型
@@ -221,8 +224,8 @@ export function Settings() {
           </section>
         </Show>
 
-        <section class="card">
-          <h2>账户</h2>
+        <section class="card" id="account">
+          <h2>账户安全</h2>
           <form class="stack-form" onSubmit={(event) => void saveName(event)}>
             <label>
               昵称
@@ -264,14 +267,16 @@ export function Settings() {
           <button class="btn danger" type="button" onClick={() => void deleteAccount()}>删除账号</button>
         </section>
 
-        <section class="card">
-          <h2>数据</h2>
+        <section class="card" id="data">
+          <h2>数据管理</h2>
           <div class="row-actions">
             <button class="btn ghost" type="button" onClick={() => void exportAll()}>导出全部会话</button>
             <button class="btn ghost" type="button" onClick={clearCache}>清空本机缓存</button>
           </div>
           <p class="empty">清空缓存只删除本机 aiggb.* 数据，不清除登录状态，也不删除云端记录。</p>
         </section>
+        </div>
+        </div>
       </main>
     </div>
   )

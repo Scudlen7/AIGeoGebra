@@ -1,6 +1,7 @@
 import { useNavigate } from '@solidjs/router'
 import { For, Show, createSignal, onMount } from 'solid-js'
 import { AccountBar } from '../AccountBar'
+import { Icon } from '../Icon'
 import { downloadJson, fetchSummary, readableError, sessionExport, type UsageSummary } from '../api'
 import { modeList } from '../modes'
 import { loggedIn, pb } from '../pb'
@@ -22,6 +23,10 @@ export function Dashboard() {
   const [mode, setMode] = createSignal<CalculatorMode>('geometry')
   const [editing, setEditing] = createSignal('')
   const [draftName, setDraftName] = createSignal('')
+  const [query, setQuery] = createSignal('')
+  const [loading, setLoading] = createSignal(true)
+  const visibleSessions = () => sessions().filter((item) => String(item.name || '未命名会话').toLowerCase().includes(query().trim().toLowerCase()))
+  const modeIcon: Record<string, string> = { geometry: 'triangle', '3d': 'cube', probability: 'chart-bell', scientific: 'function' }
 
   async function load() {
     const [usage, list] = await Promise.all([
@@ -37,7 +42,7 @@ export function Dashboard() {
       navigate('/login?redirect=' + encodeURIComponent('/dashboard'), { replace: true })
       return
     }
-    load().catch((reason) => setError(readableError(reason, '工作台加载失败')))
+    load().catch((reason) => setError(readableError(reason, '工作台加载失败'))).finally(() => setLoading(false))
   })
 
   async function createSession(event: Event) {
@@ -83,10 +88,10 @@ export function Dashboard() {
   return (
     <div class="subpage">
       <AccountBar />
-      <main class="page">
+      <main id="main-content" class="page">
         <div class="page-head">
-          <h1>工作台</h1>
-          <p>这些数字来自你自己的云端记录。没有记录时显示 0。</p>
+          <h1>每一次探索，都有迹可循</h1>
+          <p>回到之前的问题，继续你的数学思考。用量来自你的真实云端记录。</p>
         </div>
         {error() ? <p class="banner">{error()}</p> : null}
         <section class="stat-grid">
@@ -103,7 +108,7 @@ export function Dashboard() {
             <strong>{summary()?.tokens ?? 0}</strong>
           </article>
         </section>
-        <section class="dash-grid">
+        <details class="usage-details"><summary>查看用量趋势</summary><section class="dash-grid">
           <div class="card">
             <h2>近 7 天每日请求</h2>
             <div class="bars">
@@ -136,7 +141,7 @@ export function Dashboard() {
               </ul>
             </Show>
           </div>
-        </section>
+        </section></details>
         <section class="card">
           <h2>新建会话</h2>
           <form class="inline-form" onSubmit={(event) => void createSession(event)}>
@@ -154,12 +159,15 @@ export function Dashboard() {
           </form>
         </section>
         <section>
-          <h2>会话列表</h2>
-          <Show when={sessions().length > 0} fallback={<p class="empty">还没有云端会话。完成一次作图后会自动保存，也可以在上面新建。</p>}>
+          <div class="session-tools"><h2>最近的探索</h2><input class="session-search" type="search" aria-label="搜索会话" placeholder="搜索会话名称" value={query()} onInput={(event) => setQuery(event.currentTarget.value)} /></div>
+          <Show when={!loading()} fallback={<div class="card" role="status"><p>正在读取你的会话…</p><div class="skeleton" /><div class="skeleton short" /></div>}>
+          <Show when={visibleSessions().length > 0} fallback={<div class="empty-panel"><h3>{query().trim() ? '没有找到相关会话' : '从第一个问题开始'}</h3><p class="empty">{query().trim() ? '换一个关键词试试。' : '还没有云端会话。在上方新建，或完成一次作图后自动保存。'}</p></div>}>
             <ul class="session-list">
-              <For each={sessions()}>
+              <For each={visibleSessions()}>
                 {(item) => (
                   <li>
+                    <div class="session-art"><Icon name={modeIcon[String(item.mode)] || 'function'} /><small>计算模式示意</small></div>
+                    <div class="session-body">
                     <div>
                       <Show when={editing() === item.id} fallback={<strong>{String(item.name || '未命名会话')}</strong>}>
                         <input value={draftName()} onInput={(event) => setDraftName(event.currentTarget.value)} />
@@ -176,15 +184,17 @@ export function Dashboard() {
                           </button>
                         }
                       >
-                        <button class="btn ghost" type="button" onClick={() => void rename(String(item.id))}>保存</button>
+                          <button class="btn ghost" type="button" onClick={() => void rename(String(item.id)).catch((reason) => setError(readableError(reason, '重命名失败')))}>保存</button>
                       </Show>
                       <button class="btn ghost" type="button" onClick={() => downloadJson(`session-${item.name || item.id}.json`, sessionExport(item))}>导出</button>
                       <button class="btn ghost" type="button" onClick={() => void remove(String(item.id)).catch((reason) => setError(readableError(reason, '删除失败')))}>删除</button>
+                    </div>
                     </div>
                   </li>
                 )}
               </For>
             </ul>
+          </Show>
           </Show>
         </section>
       </main>

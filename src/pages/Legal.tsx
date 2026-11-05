@@ -5,7 +5,7 @@ export function Terms() {
   return (
     <div class="subpage">
       <AccountBar />
-      <main class="prose">
+      <main id="main-content" class="prose">
         <h1>用户协议</h1>
         <p>AI 几何画板提供自然语言驱动作图和计算。你可以用邮箱注册账号，把登录后的新会话保存到云端。</p>
         <p>请使用你本人的邮箱注册。密码至少 8 位，并请妥善保管。验证码只通过邮件发送，不要转给他人。</p>
@@ -21,7 +21,7 @@ export function Privacy() {
   return (
     <div class="subpage">
       <AccountBar />
-      <main class="prose">
+      <main id="main-content" class="prose">
         <h1>隐私政策</h1>
         <p>注册时我们保存昵称、邮箱和密码哈希。验证码只出现在邮件里，服务器保存的是加盐后的哈希，用过或过期后失效。</p>
         <p>登录后的会话包含对话、输入草稿和作图报告。模型请求会记录模型名称、是否经过网关，以及上游返回的 token 数。浏览器不能自己上报这些数字。</p>
