@@ -2,8 +2,9 @@ import { A, useLocation, useNavigate } from '@solidjs/router'
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 import { authUser, loggedIn, pb } from './pb'
 import { Icon } from './Icon'
+import type { CalculatorMode } from './types'
 
-export function AccountBar() {
+export function AccountBar(props: { workbenchMode?: CalculatorMode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [open, setOpen] = createSignal(false)
@@ -23,11 +24,13 @@ export function AccountBar() {
   function close() { menu?.close(); trigger?.focus() }
   function logout() { pb.authStore.clear(); setOpen(false); close(); navigate('/') }
   const links = () => <>
-    <A href="/" end class="nav-item" activeClass="active" onClick={close}><Icon name="squares-four" /><span>探索工作区</span></A>
-    <A href="/dashboard" class="nav-item" activeClass="active" onClick={close}><Icon name="chat-circle-text" /><span>我的会话</span></A>
-    <A href="/settings" class="nav-item" activeClass="active" onClick={close}><Icon name="gear-six" /><span>偏好与账户</span></A>
+    <Show when={loggedIn()} fallback={<A href="/try" class="nav-item" activeClass="active" aria-label="游客试用" onClick={close}><Icon name="squares-four" /><span>游客试用</span></A>}>
+      <A href={props.workbenchMode ? `/dashboard?mode=${props.workbenchMode}` : '/dashboard'} class="nav-item" activeClass="active" aria-label="工作台" onClick={close}><Icon name="chat-circle-text" /><span>工作台</span></A>
+      <A href="/workspace" class="nav-item" activeClass="active" aria-label="作图工作区" onClick={close}><Icon name="squares-four" /><span>作图工作区</span></A>
+      <A href="/settings" class="nav-item" activeClass="active" aria-label="偏好与账户" onClick={close}><Icon name="gear-six" /><span>偏好与账户</span></A>
+    </Show>
   </>
-  const brand = () => <A class="brand" href="/" onClick={close}><img src="/design/mark.svg" alt="" /><span>AI 几何画板<small>让数学看得见</small></span></A>
+  const brand = () => <A class="brand" href="/" aria-label="AI 几何画板首页" onClick={close}><img src="/design/mark.svg" alt="" /><span>AI 几何画板<small>让数学看得见</small></span></A>
   return <>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
     <aside class="sidebar">
@@ -38,7 +41,7 @@ export function AccountBar() {
     <dialog class="mobile-navigation" ref={menu} aria-label="导航菜单">{brand()}<button class="btn ghost" onClick={close}>关闭菜单 <Icon name="x" /></button><nav>{links()}</nav><div class="legal-links"><A href="/privacy" onClick={close}>隐私政策</A><A href="/terms" onClick={close}>用户协议</A></div></dialog>
     <header class="topbar">
       <button ref={trigger} class="icon-btn mobile-menu" aria-label="打开导航" onClick={() => menu?.showModal()}><Icon name="list" /></button>
-      <span class="breadcrumb">数学探索 / {location.pathname === '/' ? '工作区' : location.pathname === '/dashboard' ? '我的会话' : location.pathname === '/settings' ? '偏好与账户' : '账户'}</span>
+      <span class="breadcrumb">数学探索 / {location.pathname === '/try' ? '游客试用' : location.pathname === '/workspace' ? '作图工作区' : location.pathname === '/dashboard' ? '工作台' : location.pathname === '/settings' ? '偏好与账户' : '账户'}</span>
       <div class="topbar-gap" />
       <button class="icon-btn" aria-label={dark() ? '切换浅色' : '切换深色'} onClick={toggleTheme}><Icon name={dark() ? 'sun' : 'moon'} /></button>
       <Show when={loggedIn()} fallback={<div class="auth-links"><A href="/login">登录</A><A class="btn ghost" href="/register">创建账户 <Icon name="arrow-right" /></A></div>}>

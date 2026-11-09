@@ -20,7 +20,7 @@ for (const width of [1440, 1024, 390, 320]) {
       constructor(options){this.options=options} setHTML5Codebase(){}
       inject(){this.options.appletOnLoad({setErrorDialogsActive(){},setSize(w,h){window.lastBoardSize=[w,h]},setAxesVisible(){},setGridVisible(){},getAllObjectNames(){return []},getXML(){return '<geogebra><construction/></geogebra>'}})}
     }` }))
-    await page.goto('/')
+    await page.goto('/workspace')
     await expect(page.locator('textarea')).toBeEnabled()
     await expect(page.locator('.session-name')).toBeVisible()
     const geometry = await page.locator('.workspace-head').evaluate(el => {

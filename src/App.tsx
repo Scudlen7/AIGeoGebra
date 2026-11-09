@@ -14,7 +14,7 @@ import { fetchLlmStatus, hasFailure, runTurn } from './chat'
 import { renderMarkdown } from './markdown'
 import { isCalculatorMode, modeDefinition, modeList } from './modes'
 import { authUser, loggedIn, pb } from './pb'
-import { emptySession, emptySessions, migrateLegacyStorage, modeStorageKey, normalizeSessions, readPendingCloud, sessionStorageKey, writePendingCloud } from './session'
+import { emptySession, emptySessions, migrateLegacyStorage, modeStorageKey, normalizeSessions, readPendingCloud, readPendingSession, sessionStorageKey, writePendingCloud } from './session'
 import type { AngleUnit, CalculatorMode, ChatTurn, ConstructionReport, LlmStatus, ModeSession, SessionMap } from './types'
 
 const statusLabel = {
@@ -32,7 +32,7 @@ function emptyCloudMap(): Record<CalculatorMode, CloudSession> {
   }
 }
 
-export function App() {
+export function App(props: { sessionId?: string; onModeChange?: (mode: CalculatorMode) => void }) {
   migrateLegacyStorage()
   const [llm, setLlm] = createSignal<LlmStatus>({ configured: false, model: '' })
   const [models, setModels] = createSignal<PublicModel[]>([])
@@ -78,7 +78,7 @@ export function App() {
   let syncTimer: number | undefined
   const cloudLoaded = new Set<CalculatorMode>()
   const revisions = new Map<CalculatorMode, number>()
-  const saving = new Set<CalculatorMode>()
+  const saving = new Map<CalculatorMode, number>()
   const ownerId = () => loggedIn() ? authUser()!.id : ''
 
   const activeMode = (): CalculatorMode => (isCalculatorMode(mode()) ? mode() : 'geometry')
@@ -141,11 +141,13 @@ export function App() {
     return (sessions()[target] ?? emptySession()).report
   }
 
-  function persistPending(target: CalculatorMode) {
+  function persistPending(target: CalculatorMode, savedUnnamed = false) {
     const owner = ownerId()
     if (!owner) return
     try {
-      writePendingCloud(owner, target, pendingModes()[target] ? cloudSlots()[target] : null)
+      const slot = cloudSlots()[target]
+      writePendingCloud(owner, target, pendingModes()[target] ? slot : null, slot.id)
+      if (savedUnnamed) writePendingCloud(owner, target, null)
     } catch {
       setSyncNote({ ok: false, text: '本机备份失败，请保留页面并重试云端同步' })
     }
@@ -174,22 +176,31 @@ export function App() {
     syncTimer = window.setTimeout(() => void syncCloud(target), 800)
   }
 
-  async function syncCloud(target = activeMode()) {
+  async function syncCloud(target = activeMode(), leaving = false) {
     const owner = ownerId()
-    if (!owner || !pendingModes()[target] || saving.has(target)) return
-    const generation = cloudGeneration
+    if (!owner || !pendingModes()[target]) return
     const revision = revisions.get(target) ?? 0
     const slot = cloudSlots()[target]
-    saving.add(target)
+    if (saving.has(target) && (!leaving || saving.get(target) === revision || !slot.id)) return
+    const generation = cloudGeneration
+    saving.set(target, revision)
     setSyncing(true)
     try {
       const saved = await saveCloudSession(slot, slot.messages, slot.report, owner)
-      if (owner !== ownerId() || generation !== cloudGeneration) return
+      if (owner !== ownerId() || generation !== cloudGeneration) {
+        if (slot.id) {
+          const pending = readPendingSession(owner, slot.id)
+          if (pending && JSON.stringify([pending.input, pending.messages, pending.report]) === JSON.stringify([slot.input, slot.messages, slot.report])) {
+            writePendingCloud(owner, target, null, slot.id)
+          }
+        }
+        return
+      }
       setCloudSlots((slots) => ({ ...slots, [target]: { ...slots[target], ...saved } }))
       const unchanged = revision === (revisions.get(target) ?? 0)
       setPendingModes((current) => ({ ...current, [target]: !unchanged }))
       setRetryModes((current) => ({ ...current, [target]: false }))
-      persistPending(target)
+      persistPending(target, !slot.id)
       if (target === activeMode()) setSyncNote({ ok: unchanged, text: unchanged ? '已同步到云端' : '有新的修改待同步' })
       if (!unchanged) scheduleSync(target)
     } catch (reason) {
@@ -205,14 +216,8 @@ export function App() {
     }
   }
 
-  async function loadCloudMode(target: CalculatorMode) {
-    if (cloudLoaded.has(target)) return
-    const generation = cloudGeneration
-    const owner = ownerId()
-    const pending = readPendingCloud(owner, target)
-    const slot = pending ?? await latestCloudSession(target)
-    if (generation !== cloudGeneration || owner !== ownerId()) return
-    if (cloudLoaded.has(target)) return
+  function setCloudSession(slot: CloudSession, pending: boolean) {
+    const target = slot.mode
     setCloudSlots((currentSlots) => ({ ...currentSlots, [target]: slot }))
     cloudLoaded.add(target)
     if (pending) {
@@ -220,6 +225,18 @@ export function App() {
       setPendingModes((current) => ({ ...current, [target]: true }))
       if (target === activeMode()) setSyncNote({ ok: false, text: '已恢复本机待同步副本，请重试同步' })
     }
+  }
+
+  async function loadCloudMode(target: CalculatorMode) {
+    if (cloudLoaded.has(target)) return
+    const generation = cloudGeneration
+    const owner = ownerId()
+    const legacy = readPendingCloud(owner, target)
+    const slot = legacy ?? await latestCloudSession(target)
+    if (generation !== cloudGeneration || owner !== ownerId()) return
+    if (cloudLoaded.has(target)) return
+    const pending = legacy ?? (slot.id ? readPendingSession(owner, slot.id) : null)
+    setCloudSession(pending ?? slot, Boolean(pending))
   }
 
   async function loadBoard(target: CalculatorMode) {
@@ -275,6 +292,10 @@ export function App() {
 
   async function switchMode(next: CalculatorMode) {
     if (next === activeMode() || running()) return
+    if (props.onModeChange) {
+      props.onModeChange(next)
+      return
+    }
     captureWorkspace()
     void syncCloud(activeMode())
     const generation = ++loadGeneration
@@ -294,11 +315,6 @@ export function App() {
     setAttempts(0)
     setRunning(false)
     setMode(next)
-    const url = new URL(window.location.href)
-    if (url.searchParams.has('session')) {
-      url.searchParams.delete('session')
-      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
-    }
     if (loggedIn()) {
       try {
         await loadCloudMode(next)
@@ -309,6 +325,33 @@ export function App() {
       }
     }
     if (generation === loadGeneration && owner === ownerId() && next === activeMode()) await loadBoard(next)
+  }
+
+  async function loadWorkspace() {
+    const generation = ++loadGeneration
+    const owner = ownerId()
+    setBoardError('')
+    if (owner) {
+      try {
+        if (props.sessionId) {
+          const pending = readPendingSession(owner, props.sessionId)
+          const slot = pending ?? await loadCloudSession(props.sessionId)
+          if (generation !== loadGeneration || owner !== ownerId()) return
+          setMode(slot.mode)
+          setCloudSession(slot, Boolean(pending))
+        } else {
+          await loadCloudMode(activeMode())
+        }
+      } catch (reason) {
+        if (generation !== loadGeneration || owner !== ownerId()) return
+        if (props.sessionId) {
+          setBoardError('无法打开此会话，请重试或返回工作台选择其他会话')
+          return
+        }
+        setError(readableError(reason, '云端会话读取失败'))
+      }
+    }
+    if (generation === loadGeneration && owner === ownerId()) await loadBoard(activeMode())
   }
 
   async function chooseModel(modelId: string) {
@@ -353,22 +396,11 @@ export function App() {
       setError('')
       setBoardReady(false)
       setSyncNote({ ok: false, text: '' })
-      const generation = cloudGeneration
-      void (async () => {
-        if (loggedIn()) {
-          try {
-            await loadCloudMode(activeMode())
-          } catch (reason) {
-            if (generation === cloudGeneration) setError(readableError(reason, '云端会话读取失败'))
-          }
-        }
-        if (generation === cloudGeneration) await loadBoard(activeMode())
-      })()
+      void loadWorkspace()
     })
     onCleanup(stop)
 
     void (async () => {
-      const generation = cloudGeneration
       try {
         const [status, list] = await Promise.all([fetchLlmStatus(), fetchModels()])
         setLlm(status)
@@ -376,33 +408,9 @@ export function App() {
       } catch {
         setLlm({ configured: false, model: '' })
       }
-      if (generation !== cloudGeneration) return
-      if (!isCalculatorMode(mode())) setMode('geometry')
-      const sessionId = new URLSearchParams(window.location.search).get('session')
-      if (loggedIn()) {
-        try {
-          if (sessionId) {
-            const slot = await loadCloudSession(sessionId)
-            if (generation !== cloudGeneration) return
-            const pending = readPendingCloud(ownerId(), slot.mode)
-            const restored = pending ?? slot
-            setMode(restored.mode)
-            setCloudSlots((currentSlots) => ({ ...currentSlots, [restored.mode]: restored }))
-            cloudLoaded.add(restored.mode)
-            if (pending) {
-              setRetryModes((current) => ({ ...current, [restored.mode]: true }))
-              setPendingModes((current) => ({ ...current, [restored.mode]: true }))
-              setSyncNote({ ok: false, text: pending.id === sessionId ? '已恢复本机待同步副本，请重试同步' : '该模式有未同步修改，已优先恢复本机副本，请先同步后再打开其他会话' })
-            }
-          } else {
-            await loadCloudMode(activeMode())
-          }
-        } catch (reason) {
-          if (generation === cloudGeneration) setError(readableError(reason, '云端会话读取失败'))
-        }
-      }
-      if (generation === cloudGeneration) await loadBoard(activeMode())
     })()
+    if (!isCalculatorMode(mode())) setMode('geometry')
+    void loadWorkspace()
   })
 
   function backupBeforeLeave() {
@@ -411,7 +419,8 @@ export function App() {
   onMount(() => window.addEventListener('pagehide', backupBeforeLeave))
 
   onCleanup(() => {
-    captureWorkspace()
+    captureWorkspace(loadedOwner)
+    if (loadedOwner === ownerId() && activeSession().id) void syncCloud(activeMode(), true)
     turnGeneration += 1
     loadGeneration += 1
     cloudGeneration += 1
@@ -528,7 +537,7 @@ export function App() {
 
   return (
     <div class="shell" data-mode={activeMode()}>
-      <AccountBar />
+      <AccountBar workbenchMode={activeMode()} />
       <header class="workspace-head">
         <div class="workspace-identity">
           <p class="eyebrow">{current().eyebrow}</p>
@@ -558,7 +567,7 @@ export function App() {
             </Show>
           </Show>
         </div>
-        <nav class="modes" aria-label="计算器模式">
+        <nav class="modes" aria-label={props.onModeChange ? '会话模块' : '计算器模式'}>
           <For each={modeList}>
             {(item) => (
               <button
@@ -566,7 +575,7 @@ export function App() {
                 classList={{ active: activeMode() === item.id }}
                 aria-pressed={activeMode() === item.id}
                 disabled={running()}
-                title={item.ready ? item.label : '后续步骤接入'}
+                title={props.onModeChange && activeMode() !== item.id ? `查看${item.label}会话` : item.label}
                 onClick={() => void switchMode(item.id)}
               >
                 {item.label}
@@ -713,7 +722,10 @@ export function App() {
                 <Show when={!boardError()}><div class="skeleton" /><div class="skeleton short" /></Show>
                 <p>{boardError() || '正在加载画板…'}</p>
                 <Show when={boardError()}>
-                  <button class="btn ghost" type="button" onClick={() => void loadBoard(activeMode())}>重新加载画板</button>
+                  <button class="btn ghost" type="button" onClick={() => {
+                    if (props.sessionId && activeSession().id !== props.sessionId) void loadWorkspace()
+                    else void loadBoard(activeMode())
+                  }}>重新加载</button>
                   <Show when={getApi()}>
                     <button class="btn ghost" type="button" onClick={() => {
                       setBoardReady(true)

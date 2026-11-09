@@ -21,7 +21,7 @@ async function mockServices(page, authenticated = false) {
 test('mobile tabs preserve the board and draft; navigation and theme work', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockServices(page)
-  await page.goto('/')
+  await page.goto('/try')
   await expect(page.locator('textarea')).toBeEnabled()
   await page.locator('textarea').fill('保留我的作图问题')
   const mounts = await page.evaluate(() => window.injectCount)
@@ -47,7 +47,7 @@ for (const width of [1440, 768, 390, 320]) {
     page.on('pageerror', error => errors.push(error.message))
     await mockServices(page, true)
     await page.setViewportSize({ width, height: 960 })
-    for (const route of ['/dashboard', '/settings', '/login', '/register', '/forgot', '/privacy', '/terms', '/missing-page']) {
+    for (const route of ['/', '/dashboard', '/settings', '/login', '/register', '/forgot', '/privacy', '/terms', '/missing-page']) {
       await page.goto(route)
       await expect(page.locator('main')).toBeVisible()
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)

@@ -103,8 +103,8 @@ async function waitFor(predicate, description = 'expected state') {
   }
 }
 
-async function mount({ user = null, cloud = {}, storage, state: previousState } = {}) {
-  const window = new Window({ url: 'http://localhost/' })
+async function mount({ user = null, cloud = {}, storage, sessionId, state: previousState } = {}) {
+  const window = new Window({ url: sessionId ? `http://localhost/workspace?session=${sessionId}` : 'http://localhost/' })
   activeWindow = window
   for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLDivElement', 'HTMLTextAreaElement', 'Element', 'Node', 'Document', 'MutationObserver', 'ResizeObserver', 'localStorage', 'sessionStorage', 'CustomEvent', 'KeyboardEvent', 'Event']) {
     Object.defineProperty(globalThis, key, { value: window[key], configurable: true, writable: true })
@@ -119,7 +119,7 @@ async function mount({ user = null, cloud = {}, storage, state: previousState } 
   const { App, render } = await loadTs('src/App.tsx', { mocks, source: source + '\nexport { render } from "solid-js/web"' })
   const host = document.createElement('div')
   document.body.append(host)
-  cleanup = render(() => App(), host)
+  cleanup = render(() => App({ sessionId }), host)
   await waitFor(() => !document.querySelector('textarea').disabled, 'board ready')
   return state
 }
@@ -212,6 +212,30 @@ test('failed cloud save survives mode switching and reload, then retry uploads t
   await waitFor(() => document.body.textContent.includes('已同步到云端'))
   assert.equal(reloaded.saves.at(-1).report.boardXml, xml)
   assert.equal(reloaded.saves.at(-1).owner, 'alice')
+})
+
+test('opening a named session restores its own board while a different session in the same mode is pending', async () => {
+  const first = {
+    id: 'first', name: 'First', mode: 'geometry', input: '',
+    messages: [{ role: 'user', content: 'first conversation' }],
+    report: { ...report([]), boardXml: '<geogebra><construction>first board</construction></geogebra>' },
+  }
+  const second = {
+    id: 'second', name: 'Second', mode: 'geometry', input: 'second draft',
+    messages: [{ role: 'user', content: 'second conversation' }],
+    report: { ...report([]), boardXml: '<geogebra><construction>second board</construction></geogebra>' },
+  }
+  const state = await mount({
+    user: { id: 'alice' },
+    cloud: { alice: { geometry: first, second } },
+    storage: [['aiggb.cloud.alice.geometry', JSON.stringify(first)]],
+    sessionId: 'second',
+  })
+  assert.equal(state.xml, second.report.boardXml)
+  assert.match(document.querySelector('.transcript').textContent, /second conversation/)
+  assert.doesNotMatch(document.querySelector('.transcript').textContent, /first conversation/)
+  assert.equal(document.querySelector('textarea').value, second.input)
+  assert.equal(button('重试同步'), undefined)
 })
 
 test('switching account clears all modes and ignores the previous account model callbacks', async () => {
