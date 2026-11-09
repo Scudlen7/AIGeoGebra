@@ -13,10 +13,11 @@ async function mockServices(page) {
     ['probability-a', '分布题', 'probability', 'D'],
     ['calculator-a', '对数题', 'scientific', 'E'],
   ].map(([id, name, mode, label]) => ({
-    id, name, mode, owner: owner.id, input: '', messages: [{ role: 'user', content: `${name}的问题` }],
+    id, name, mode, owner: owner.id, updated: '2026-11-06 08:15:00.000Z',
+    input: '', messages: [{ role: 'user', content: `${name}的问题` }],
     report: { boardXml: xml(label), objects: [], results: [], hint: '' },
   }))
-  const state = { records, failSave: '' }
+  const state = { records, failSave: '', usage: { requests: 0, tokens: 0, days: [], models: [] } }
   await page.route('**/api/config', route => route.fulfill({ json: { pbUrl: 'http://pb.test' } }))
   await page.route('**/api/status', route => route.fulfill({ json: { configured: true, model: 'test' } }))
   await page.route('**/api/models', route => route.fulfill({ json: [{ id: 'test', label: '数学模型', gateway: false }] }))
@@ -28,7 +29,7 @@ async function mockServices(page) {
     }
     if (path === '/api/auth/request-code' || path === '/api/auth/reset-password') return route.fulfill({ json: { ok: true } })
     if (request.headers().authorization !== token) return route.fulfill({ status: 403, json: { message: '登录后查看会话' } })
-    if (path === '/api/usage/summary') return route.fulfill({ json: { requests: 0, tokens: 0, sessions: records.length, days: [], models: [] } })
+    if (path === '/api/usage/summary') return route.fulfill({ json: { ...state.usage, sessions: records.length } })
     const base = '/api/collections/sessions/records'
     if (path === base && request.method() === 'POST') {
       const record = { ...request.postDataJSON(), id: 'new-session' }
@@ -41,6 +42,10 @@ async function mockServices(page) {
     if (request.method() === 'PATCH') {
       if (state.failSave === record.id) return route.fulfill({ status: 503, json: { message: '暂时无法保存' } })
       Object.assign(record, request.postDataJSON())
+    }
+    if (request.method() === 'DELETE') {
+      records.splice(records.indexOf(record), 1)
+      return route.fulfill({ status: 204 })
     }
     return route.fulfill({ json: record })
   })
@@ -167,13 +172,84 @@ test('workbench groups history and restores the selected drawing through a faile
   expect(state.records.find(item => item.id === 'geometry-b').report.boardXml).toBe(xml('B'))
   await goToWorkbench()
   await modules.getByRole('button', { name: /^3D/ }).click()
-  await page.getByLabel('会话名称').fill('新的空间会话')
-  await page.getByRole('main').getByRole('button', { name: '新建会话' }).click()
+  const create = page.getByRole('main').getByRole('button', { name: '新建会话', exact: true })
+  await expect(page.getByLabel('会话名称')).toBeHidden()
+  await create.click()
+  const dialog = page.getByRole('dialog', { name: '新建会话' })
+  await expect(dialog.getByLabel('数学模块')).toHaveValue('3d')
+  await dialog.getByLabel('会话名称').fill('不会保存的名称')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(create).toBeFocused()
+  await create.click()
+  await expect(dialog.getByLabel('会话名称')).toHaveValue('')
+  await dialog.getByLabel('会话名称').fill('新的空间会话')
+  await dialog.getByRole('button', { name: '创建会话' }).click()
   await expect(page).toHaveURL(/\/workspace\?session=new-session$/)
   await expect(page.getByText('当前会话 新的空间会话')).toBeVisible()
   await expect(page.getByLabel('描述你的问题')).toBeEnabled()
   expect(state.records.find(item => item.id === 'new-session')).toMatchObject({ mode: '3d', messages: [] })
   await expect.poll(() => page.evaluate(() => window.boardXml)).toBe('<geogebra><construction/></geogebra>')
+})
+
+test('dashboard shows usage and a compact paginated history with session actions', async ({ page }) => {
+  const state = await mockServices(page)
+  state.usage = {
+    requests: 15,
+    tokens: 2536,
+    days: [0, 3, 1, 0, 2, 0, 4].map((requests, index) => ({ date: `2026-11-0${index + 1}`, requests })),
+    models: [{ model: 'test', requests: 15, tokens: 2536 }],
+  }
+  for (let index = 1; index <= 4; index++) {
+    state.records.push({ ...state.records[0], id: `extra-${index}`, name: `历史几何题 ${index}` })
+  }
+  await page.goto('/login')
+  await signIn(page)
+
+  const main = page.getByRole('main')
+  const metrics = main.getByRole('region', { name: '用量概况' }).getByRole('article')
+  await expect(metrics).toHaveCount(4)
+  for (const [label, value] of [['累计请求数', '15'], ['云端会话', '9'], ['Token 总量', '2,536'], ['近 7 天活跃天数', '4']]) {
+    await expect(metrics.filter({ hasText: label }).locator('strong')).toHaveText(value)
+  }
+  const chart = main.getByRole('region', { name: '近 7 天请求' })
+  await expect(chart.getByRole('listitem', { name: '2026-11-07，4 次请求' })).toBeVisible()
+  await chart.getByText('按模型查看请求数', { exact: true }).click()
+  await expect(chart.getByText('test', { exact: true })).toBeVisible()
+
+  const history = main.getByRole('region', { name: '历史会话' })
+  const rows = history.locator('.session-list').getByRole('listitem')
+  await expect(rows).toHaveCount(5)
+  await expect(rows.first().locator('time')).toHaveAttribute('datetime', '2026-11-06T08:15:00.000Z')
+  await history.getByRole('button', { name: '下一页' }).click()
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('历史几何题 4')
+  await history.getByRole('searchbox', { name: '搜索会话' }).fill('几何乙')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('几何乙')
+  await expect(history.getByRole('button', { name: '导出', exact: true })).toBeHidden()
+  await rows.first().getByRole('button', { name: /更多操作/ }).click()
+  const download = page.waitForEvent('download')
+  await history.getByRole('button', { name: '导出', exact: true }).click()
+  expect((await download).suggestedFilename()).toBe('session-几何乙.json')
+  await history.getByRole('button', { name: '重命名', exact: true }).click()
+  await history.getByLabel('新会话名称').fill('新的几何标题')
+  await history.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(history.getByText('没有找到相关会话')).toBeVisible()
+  await history.getByRole('searchbox', { name: '搜索会话' }).fill('新的几何标题')
+  await expect(rows.first()).toContainText('新的几何标题')
+  await rows.first().getByRole('button', { name: /更多操作/ }).click()
+  page.once('dialog', dialog => dialog.accept())
+  await history.getByRole('button', { name: '删除', exact: true }).click()
+  await expect(rows).toHaveCount(0)
+  await expect(metrics.filter({ hasText: '云端会话' }).locator('strong')).toHaveText('8')
+
+  await page.route('http://pb.test/api/usage/summary', route => route.fulfill({ status: 503, json: { message: '用量暂不可用' } }))
+  await page.reload()
+  await expect(chart.getByRole('alert')).toHaveText('用量暂不可用')
+  await expect(metrics.filter({ hasText: '累计请求数' }).locator('strong')).toHaveText('—')
+  await expect(metrics.filter({ hasText: '云端会话' }).locator('strong')).toHaveText('8')
+  await expect(rows.first()).toContainText('几何甲')
 })
 
 async function openGeometrySession(page) {

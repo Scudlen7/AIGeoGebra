@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test'
 
 const testAccount = { id: 'design-user', name: '数学探索者', email: 'math@example.test', model: 'test' }
+const sampleSessions = ['三角形与高线', '圆与切线', '二次函数与直线的交点', '等腰三角形的中线', '平行四边形的对角线']
+  .map((name, index) => ({
+    id: `session-${index}`, name, mode: 'geometry', messages: [], report: null,
+    updated: `2026-11-0${9 - index} 09:30:00.000Z`,
+  }))
 
 async function mockServices(page, authenticated = false) {
   if (authenticated) {
@@ -17,8 +22,12 @@ async function mockServices(page, authenticated = false) {
     { id: 'via-gateway', label: '推理模型', endpoint: 'https://gateway.example.test/v1' },
   ] } }))
   await page.route('http://pb.test/**', route => route.fulfill({ json: route.request().url().includes('/usage/summary')
-    ? { requests: 7, sessions: 1, tokens: 2536, days: [], models: [], gatewayMonth: { models: [] } }
-    : { page: 1, perPage: 100, totalItems: 1, totalPages: 1, items: [{ id: 'session', name: '三角形与高线', mode: 'geometry', messages: [], report: null }] } }))
+    ? {
+        requests: 21, sessions: sampleSessions.length, tokens: 7826, gatewayMonth: { models: [] },
+        days: [1, 4, 0, 2, 5, 3, 6].map((requests, index) => ({ date: `2026-11-0${index + 3}`, requests })),
+        models: [{ model: 'test', requests: 21, tokens: 7826 }],
+      }
+    : { page: 1, perPage: 100, totalItems: sampleSessions.length, totalPages: 1, items: sampleSessions } }))
   await page.route('**/deployggb.js', route => route.fulfill({ contentType: 'application/javascript', body: `window.GGBApplet=class {
     constructor(options){this.options=options;window.injectCount=(window.injectCount||0)+1} setHTML5Codebase(){}
     inject(){this.options.appletOnLoad({setErrorDialogsActive(){},setSize(w,h){window.lastBoardSize=[w,h]},setAxesVisible(){},setGridVisible(){},getAllObjectNames(){return []},getXML(){return '<geogebra><construction/></geogebra>'}})}
@@ -153,9 +162,18 @@ for (const width of [1440, 768, 390, 320]) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
       if (route === '/dashboard') {
         await expect(page.locator('.session-list')).toContainText('三角形与高线')
-        await page.getByRole('searchbox', { name: '搜索会话' }).fill('不存在')
+        const main = page.getByRole('main')
+        await expect(main.getByRole('listitem', { name: '2026-11-09，6 次请求' })).toBeVisible()
+        const history = await main.getByRole('region', { name: '历史会话' }).boundingBox()
+        const trend = await main.getByRole('region', { name: '近 7 天请求' }).boundingBox()
+        if (width === 1440) expect(trend.x + trend.width).toBeLessThan(history.x)
+        else expect(history.y + history.height).toBeLessThan(trend.y)
+        const search = main.getByRole('searchbox', { name: '搜索会话' })
+        await search.fill('不存在')
         await expect(page.getByText('没有找到相关会话')).toBeVisible()
-        await page.getByRole('searchbox').fill('')
+        await search.fill('')
+        await search.blur()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
       }
       if (['/login', '/register', '/forgot'].includes(route)) {
         await expect(page.getByRole('link', { name: 'AI GeoGebra 首页' })).toBeVisible()
