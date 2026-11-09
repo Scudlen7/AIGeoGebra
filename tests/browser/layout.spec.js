@@ -11,9 +11,10 @@ for (const width of [1440, 1024, 390, 320]) {
     await page.route('**/api/models', route => route.fulfill({ json: [{ id: 'test', label: '一个用于检查长名称布局的测试模型', gateway: false }] }))
     await page.route('http://pb.test/**', async route => {
       const data = route.request().postDataJSON()
+      const perPage = Number(new URL(route.request().url()).searchParams.get('perPage')) || 1
       if (failSave && route.request().method() !== 'GET') return route.fulfill({ status: 503, json: { message: '云端暂时不可用，已保留本机待同步副本，请稍后重试同步' } })
       await route.fulfill({ json: route.request().method() === 'GET'
-        ? { page: 1, perPage: 1, totalItems: 1, items: [{ id: 'session', name: '一个很长的数学会话名称用于验证标题截断和导航布局', mode: 'geometry', messages: [], input: '', report: null }] }
+        ? { page: 1, perPage, totalItems: 1, totalPages: 1, items: [{ id: 'session', name: '一个很长的数学会话名称用于验证标题截断和导航布局', mode: 'geometry', messages: [], input: '', report: null }] }
         : { ...data, id: 'session' } })
     })
     await page.route('**/deployggb.js', route => route.fulfill({ contentType: 'application/javascript', body: `window.GGBApplet=class {
@@ -23,6 +24,7 @@ for (const width of [1440, 1024, 390, 320]) {
     await page.goto('/workspace')
     await expect(page.locator('textarea')).toBeEnabled()
     await expect(page.locator('.session-name')).toBeVisible()
+    if (width === 1440) await expect(page.locator('.sidebar-history a')).toBeVisible()
     const geometry = await page.locator('.workspace-head').evaluate(el => {
       const title = el.querySelector('h1').getBoundingClientRect()
       const model = el.querySelector('.model-slot').getBoundingClientRect()

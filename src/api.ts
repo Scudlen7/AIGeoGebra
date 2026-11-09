@@ -176,6 +176,12 @@ export async function loadCloudSession(id: string) {
   return fromSessionRecord(item as unknown as Record<string, unknown>)
 }
 
+export async function createCloudSession(mode: CalculatorMode, name = '未命名会话') {
+  const owner = authUser()?.id
+  if (!owner) throw new Error('请先登录')
+  return pb.collection('sessions').create({ owner, name, mode, messages: [], input: '', report: null })
+}
+
 const sessionWrites = new Map<string, Promise<Record<string, unknown>>>()
 
 export async function saveCloudSession(slot: CloudSession, messages: ChatTurn[], report: ConstructionReport | null, owner = authUser()?.id) {

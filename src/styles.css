@@ -183,10 +183,17 @@ em {
   top:16px
 }
 .shell,.subpage {
-  padding:0 var(--s6) var(--s6) 232px;
+  --sidebar-width:224px;
+  --sidebar-gap:var(--s6);
+  padding:0 var(--s6) var(--s6) calc(var(--sidebar-width) + var(--sidebar-gap));
   min-height:100dvh
 }
+.shell:has(>.sidebar.collapsed),.subpage:has(>.sidebar.collapsed) {
+  --sidebar-width:64px;
+  --chat-width:clamp(382px,38%,488px)
+}
 .shell {
+  --chat-width:350px;
   height:100dvh;
   display:flex;
   flex-direction:column;
@@ -195,13 +202,24 @@ em {
 .sidebar {
   position:fixed;
   inset:0 auto 0 0;
-  width:208px;
+  width:var(--sidebar-width);
   display:flex;
   flex-direction:column;
-  gap:var(--s8);
-  padding:var(--s8) var(--s4) var(--s4);
+  gap:var(--s4);
+  padding:var(--s6) var(--s3) var(--s4);
+  overflow-y:auto;
+  border-right:1px solid var(--border);
   z-index:5;
   background:var(--surface)
+}
+.sidebar.collapsed {
+  align-items:center;
+  padding-inline:var(--s2)
+}
+.sidebar.collapsed .brand span,.sidebar.collapsed .nav-item span:not(.icon),.sidebar.collapsed .side-note,
+.sidebar.collapsed .sidebar-sessions,.sidebar.collapsed .sidebar-bottom>.meta,.sidebar.collapsed .sidebar-bottom>.rule,
+.sidebar.collapsed .profile>span:not(.avatar),.sidebar.collapsed .legal-links {
+  display:none
 }
 .brand {
   display:flex;
@@ -223,6 +241,9 @@ em {
   display:flex;
   flex-direction:column;
   gap:var(--s2)
+}
+.sidebar>.brand,.sidebar nav,.mobile-navigation nav,.mobile-navigation-head {
+  flex:none
 }
 .nav-item {
   display:flex;
@@ -252,9 +273,75 @@ em {
 }
 .sidebar-bottom {
   margin-top:auto;
+  flex:none;
   display:flex;
   flex-direction:column;
-  gap:var(--s4)
+  gap:var(--s3)
+}
+.sidebar-sessions {
+  display:flex;
+  flex:1;
+  flex-direction:column;
+  gap:var(--s2);
+  min-height:136px;
+  min-width:0
+}
+.sidebar-create {
+  width:100%
+}
+.sidebar-create span {
+  font-size:20px;
+  line-height:1
+}
+.sidebar-history-head,.mobile-navigation-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--s2)
+}
+.sidebar-history-head h2 {
+  font-size:14px;
+  line-height:20px
+}
+.sidebar-history-head select {
+  min-height:36px;
+  padding:var(--s1) var(--s2);
+  border-color:var(--border);
+  font-size:12px
+}
+.sidebar-history {
+  min-height:0;
+  margin:0;
+  padding:0;
+  overflow-y:auto;
+  list-style:none
+}
+.sidebar-history a {
+  display:block;
+  overflow:hidden;
+  padding:var(--s2) var(--s3);
+  border-radius:var(--r1);
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:14px
+}
+.sidebar-history a:hover,.sidebar-history a[aria-current=page] {
+  background:var(--soft);
+  color:var(--accent)
+}
+.sidebar-history a[aria-current=page] {
+  font-weight:600
+}
+.sidebar-history a:focus-visible {
+  outline-offset:-2px
+}
+.sidebar-error {
+  color:var(--error);
+  overflow-wrap:anywhere
+}
+.sidebar-history-error {
+  display:grid;
+  gap:var(--s2)
 }
 .profile {
   display:flex;
@@ -348,7 +435,8 @@ em {
 .mobile-navigation[open] {
   display:flex;
   flex-direction:column;
-  gap:var(--s8)
+  gap:var(--s4);
+  overflow-y:auto
 }
 .mobile-navigation::backdrop {
   background:var(--surface)
@@ -443,7 +531,7 @@ em {
 }
 .workspace {
   display:grid;
-  grid-template-columns:350px minmax(0,1fr);
+  grid-template-columns:var(--chat-width) minmax(0,1fr);
   gap:var(--s4);
   flex:1;
   min-height:0
@@ -1208,22 +1296,11 @@ label {
 }
 @media(max-width:1200px) {
   .shell,.subpage {
-    padding-left:96px;
+    --sidebar-gap:var(--s4);
     padding-right:var(--s4)
   }
-  .sidebar {
-    width:80px;
-    align-items:center;
-    padding:var(--s6) var(--s3)
-  }
-  .sidebar .brand span,.sidebar .nav-item span:not(.icon),.sidebar .side-note,.sidebar-bottom>.meta,.sidebar .profile>span:not(.avatar),.sidebar .legal-links {
-    display:none
-  }
-  .sidebar .nav-item {
-    padding:var(--s3)
-  }
-  .workspace {
-    grid-template-columns:310px minmax(0,1fr)
+  .shell {
+    --chat-width:310px
   }
   .workspace-head {
     grid-template-columns:minmax(0,1fr) auto minmax(100px,180px);
@@ -1254,7 +1331,7 @@ label {
   .shell,.subpage {
     padding:0 var(--s4) var(--s4)
   }
-  .sidebar {
+  .sidebar,.sidebar-toggle {
     display:none
   }
   .topbar {
@@ -1262,6 +1339,12 @@ label {
   }
   .mobile-menu {
     display:inline-flex
+  }
+  .sidebar-history-head select,.sidebar-history a {
+    min-height:44px
+  }
+  .sidebar-history a {
+    padding-block:var(--s3)
   }
   .breadcrumb {
     display:none

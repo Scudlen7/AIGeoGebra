@@ -537,7 +537,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
 
   return (
     <div class="shell" data-mode={activeMode()}>
-      <AccountBar workbenchMode={activeMode()} />
+      <AccountBar workbenchMode={activeMode()} sessionId={activeSession().id} />
       <header class="workspace-head">
         <div class="workspace-identity">
           <p class="eyebrow">{current().eyebrow}</p>

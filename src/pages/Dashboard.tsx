@@ -3,7 +3,7 @@ import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
 import type { RecordModel } from 'pocketbase'
 import { AccountBar } from '../AccountBar'
 import { Icon } from '../Icon'
-import { downloadJson, fetchSummary, readableError, sessionExport, workspacePath, type UsageSummary } from '../api'
+import { createCloudSession, downloadJson, fetchSummary, readableError, sessionExport, workspacePath, type UsageSummary } from '../api'
 import { isCalculatorMode, modeDefinition, modeList } from '../modes'
 import { authUser, pb } from '../pb'
 import { readPendingSession, writePendingCloud } from '../session'
@@ -57,20 +57,11 @@ export function Dashboard() {
 
   async function createSession(event: Event) {
     event.preventDefault()
-    const owner = authUser()?.id
-    if (!owner || creating()) return
-    const title = name().trim() || '未命名会话'
+    if (!authUser()?.id || creating()) return
     setError('')
     setCreating(true)
     try {
-      const created = await pb.collection('sessions').create({
-        owner,
-        name: title,
-        mode: mode(),
-        messages: [],
-        input: '',
-        report: null,
-      })
+      const created = await createCloudSession(mode(), name().trim() || undefined)
       if (!disposed) navigate(workspacePath(created.id))
     } catch (reason) {
       if (!disposed) setError(readableError(reason, '新建会话失败'))
@@ -102,7 +93,7 @@ export function Dashboard() {
 
   return (
     <div class="subpage">
-      <AccountBar />
+      <AccountBar workbenchMode={mode()} />
       <main id="main-content" class="page">
         <div class="page-head">
           <p class="eyebrow">个人空间</p>

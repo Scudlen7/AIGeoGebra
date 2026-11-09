@@ -51,10 +51,11 @@ async function mockServices(page) {
       setHTML5Codebase() {}
       inject() {
         let notify
+        window.boardMounts = (window.boardMounts || 0) + 1
         window.boardXml = '<geogebra><construction/></geogebra>'
         window.editBoard = xml => { window.boardXml = xml; notify?.() }
         this.options.appletOnLoad({
-          setErrorDialogsActive() {}, setSize() {}, setAxesVisible() {}, setGridVisible() {},
+          setErrorDialogsActive() {}, setSize(width) { window.boardWidth = width }, setAxesVisible() {}, setGridVisible() {},
           getAllObjectNames() { return [] }, getXML() { return window.boardXml },
           setXML(xml) { window.boardXml = xml }, registerUpdateListener(listener) { notify = listener },
           unregisterUpdateListener() { notify = undefined },
@@ -149,10 +150,85 @@ test('workbench groups history and restores the selected drawing through a faile
   await goToWorkbench()
   await modules.getByRole('button', { name: /^3D/ }).click()
   await page.getByLabel('会话名称').fill('新的空间会话')
-  await page.getByRole('button', { name: '新建会话' }).click()
+  await page.getByRole('main').getByRole('button', { name: '新建会话' }).click()
   await expect(page).toHaveURL(/\/workspace\?session=new-session$/)
   await expect(page.getByText('当前会话 新的空间会话')).toBeVisible()
   await expect(page.getByLabel('描述你的问题')).toBeEnabled()
   expect(state.records.find(item => item.id === 'new-session')).toMatchObject({ mode: '3d', messages: [] })
   await expect.poll(() => page.evaluate(() => window.boardXml)).toBe('<geogebra><construction/></geogebra>')
+})
+
+async function openGeometrySession(page) {
+  await page.goto('/workspace?session=geometry-a')
+  await signIn(page)
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+  await expect.poll(() => page.evaluate(() => window.boardXml)).toBe(xml('A'))
+}
+
+test('collapsing the sidebar widens the conversation and preserves the board and draft', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockServices(page)
+  await openGeometrySession(page)
+  const width = () => page.locator('.conversation').evaluate(el => el.clientWidth)
+  const original = await width()
+  const mounts = await page.evaluate(() => window.boardMounts)
+  const draft = page.getByLabel('描述你的问题')
+  await draft.fill('仍在编辑的草稿')
+  await page.getByRole('button', { name: '折叠侧栏' }).click()
+  await expect.poll(width).toBeGreaterThan(original + 60)
+  await expect.poll(() => page.locator('.board-frame').evaluate(el => window.boardWidth === el.clientWidth)).toBe(true)
+  await expect(draft).toHaveValue('仍在编辑的草稿')
+  expect(await page.evaluate(() => window.boardMounts)).toBe(mounts)
+  expect(await page.evaluate(() => window.boardXml)).toBe(xml('A'))
+  await page.getByRole('button', { name: '展开侧栏' }).click()
+  await expect.poll(width).toBe(original)
+  await page.getByRole('button', { name: '折叠侧栏' }).click()
+  await page.reload()
+  await expect(page.getByRole('button', { name: '展开侧栏' })).toBeVisible()
+  await expect.poll(width).toBeGreaterThan(original + 60)
+})
+
+test('sidebar switches directly between drawings and creates a blank session in the chosen module', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const state = await mockServices(page)
+  await openGeometrySession(page)
+  const sessions = page.getByRole('region', { name: '侧栏会话' })
+  await expect(sessions.getByRole('link', { name: '几何甲' })).toHaveAttribute('aria-current', 'page')
+  state.failSave = 'geometry-a'
+  await page.evaluate((edited) => window.editBoard(edited), xml('A-sidebar-edit'))
+  await sessions.getByRole('link', { name: '几何乙' }).click()
+  await expect(page).toHaveURL(/session=geometry-b$/)
+  await expect.poll(() => page.evaluate(() => window.boardXml)).toBe(xml('B'))
+  await expect(page.locator('.transcript')).toContainText('几何乙的问题')
+  await expect(sessions.getByRole('link', { name: '几何乙' })).toHaveAttribute('aria-current', 'page')
+  expect(await page.evaluate(() => window.boardMounts)).toBeGreaterThan(1)
+  await sessions.getByRole('link', { name: '几何甲' }).click()
+  await expect.poll(() => page.evaluate(() => window.boardXml)).toBe(xml('A-sidebar-edit'))
+  await sessions.getByRole('combobox', { name: '会话模块' }).selectOption('probability')
+  await expect(sessions.getByRole('link', { name: '分布题' })).toBeVisible()
+  await expect(sessions.getByRole('link', { name: '几何甲' })).toHaveCount(0)
+  await sessions.getByRole('button', { name: '新建概率会话' }).click()
+  await expect(page).toHaveURL(/session=new-session$/)
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+  expect(state.records.find(item => item.id === 'new-session')).toMatchObject({ mode: 'probability', messages: [], report: null })
+  await expect.poll(() => page.evaluate(() => window.boardXml)).toBe('<geogebra><construction/></geogebra>')
+})
+
+test('mobile navigation offers history and new sessions for the signed-in user', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const state = await mockServices(page)
+  await openGeometrySession(page)
+  const menu = page.getByRole('dialog', { name: '导航菜单' })
+  const sessions = menu.getByRole('region', { name: '侧栏会话' })
+  await page.getByRole('button', { name: '打开导航' }).click()
+  await sessions.getByRole('combobox', { name: '会话模块' }).selectOption('scientific')
+  await sessions.getByRole('link', { name: '对数题' }).click()
+  await expect(page).toHaveURL(/session=calculator-a$/)
+  await expect(menu).toBeHidden()
+  await expect.poll(() => page.evaluate(() => window.boardXml)).toBe(xml('E'))
+  await page.getByRole('button', { name: '打开导航' }).click()
+  await sessions.getByRole('button', { name: '新建计算器会话' }).click()
+  await expect(page).toHaveURL(/session=new-session$/)
+  await expect(menu).toBeHidden()
+  expect(state.records.find(item => item.id === 'new-session').mode).toBe('scientific')
 })
