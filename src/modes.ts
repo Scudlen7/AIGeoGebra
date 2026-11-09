@@ -4,6 +4,7 @@ import type { CalculatorMode } from './types'
 export type ModeDefinition = {
   id: CalculatorMode
   label: string
+  icon: string
   ready: boolean
   eyebrow: string
   title: string
@@ -20,6 +21,7 @@ export const modeList: ModeDefinition[] = [
   {
     id: 'geometry',
     label: '几何',
+    icon: 'triangle',
     ready: true,
     eyebrow: '几何',
     title: 'AI 几何画板',
@@ -43,6 +45,7 @@ export const modeList: ModeDefinition[] = [
   {
     id: '3d',
     label: '3D',
+    icon: 'cube',
     ready: true,
     eyebrow: '3D',
     title: '3D 计算器',
@@ -66,6 +69,7 @@ export const modeList: ModeDefinition[] = [
   {
     id: 'probability',
     label: '概率',
+    icon: 'chart-bell',
     ready: true,
     eyebrow: '概率',
     title: '概率计算器',
@@ -89,7 +93,8 @@ export const modeList: ModeDefinition[] = [
   },
   {
     id: 'scientific',
-    label: '科学',
+    label: '计算器',
+    icon: 'function',
     ready: true,
     eyebrow: '科学计算',
     title: '科学计算器',

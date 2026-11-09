@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "node --test tests/*.test.mjs",
-    "test:browser": "playwright test tests/browser/layout.spec.js tests/browser/redesign.spec.js",
+    "test:browser": "playwright test tests/browser/layout.spec.js tests/browser/redesign.spec.js tests/browser/workbench.spec.js",
     "test:math": "playwright test tests/browser/math.spec.js",
     "test:integration": "node --test tests/integration/*.test.mjs",
     "preview": "vite preview"

@@ -27,7 +27,7 @@ export function Login() {
     setBusy(true)
     try {
       await pb.collection('users').authWithPassword(email().trim().toLowerCase(), password())
-      navigate(safeRedirect(params.redirect || null))
+      navigate(safeRedirect(params.redirect), { replace: true })
     } catch (reason) {
       setError(readableError(reason, '邮箱或密码不正确'))
       setBusy(false)
@@ -39,7 +39,7 @@ export function Login() {
       <AccountBar />
       <AuthLayout>
         <h1>欢迎回来</h1>
-        <p class="lede">登录后，新的作图会话会保存到云端。未登录时的本地会话不会上传。</p>
+        <p class="lede">登录后进入个人工作台，继续之前的会话与画板。</p>
         <form class="stack-form" onSubmit={(event) => void submit(event)}>
           <label>
             邮箱
@@ -51,7 +51,7 @@ export function Login() {
           </label>
           <p class="form-links">
             <A href="/forgot">忘记密码</A>
-            <A href="/register">注册</A>
+            <A href={params.redirect ? `/register?redirect=${encodeURIComponent(safeRedirect(params.redirect))}` : '/register'}>注册</A>
           </p>
           <button class="btn" type="submit" disabled={busy()}>{busy() ? '登录中…' : '登录'}</button>
           {error() ? <p class="banner">{error()}</p> : null}

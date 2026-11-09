@@ -4,7 +4,7 @@ import { mathCases } from '../math-cases.mjs'
 
 const live = process.env.LIVE_LLM === '1'
 const enabled = live || process.env.LIVE_GEOGEBRA === '1'
-const labels = { geometry: '几何', '3d': '3D', probability: '概率', scientific: '科学' }
+const labels = { geometry: '几何', '3d': '3D', probability: '概率', scientific: '计算器' }
 
 for (const mode of Object.keys(labels)) {
   test.describe(`${mode} real GeoGebra acceptance`, () => {
@@ -16,7 +16,7 @@ for (const mode of Object.keys(labels)) {
       page = await context.newPage()
       // Use guest mode: live model testing must not write to an existing account.
       await page.route('**/api/config', route => route.fulfill({ json: { pbUrl: '' } }))
-      await page.goto('/')
+      await page.goto('/try')
       if (mode !== 'geometry') await page.getByRole('button', { name: labels[mode], exact: true }).click()
       await expect(page.locator('.conversation textarea')).toBeEnabled({ timeout: 120000 })
       model = (await (await page.request.get('/api/status')).json()).model

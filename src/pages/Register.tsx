@@ -84,7 +84,7 @@ export function Register() {
       })
       pb.authStore.save(String(data.token || ''), data.record as never)
       await pb.collection('users').authRefresh()
-      navigate(safeRedirect(params.redirect || null))
+      navigate(safeRedirect(params.redirect), { replace: true })
     } catch (reason) {
       setError(readableError(reason, '注册失败'))
       setBusy(false)
@@ -129,7 +129,7 @@ export function Register() {
           </label>
           <button class="btn" type="submit" disabled={busy()}>{busy() ? '注册中…' : '注册'}</button>
           {error() ? <p class="banner">{error()}</p> : null}
-          <p class="form-links"><A href="/login">已有账号，去登录</A></p>
+          <p class="form-links"><A href={params.redirect ? `/login?redirect=${encodeURIComponent(safeRedirect(params.redirect))}` : '/login'}>已有账号，去登录</A></p>
         </form>
       </AuthLayout>
     </div>

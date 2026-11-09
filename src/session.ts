@@ -50,16 +50,16 @@ export function normalizeSessions(value: unknown): SessionMap {
   return sessions
 }
 
-// Unsent cloud changes stay separate from guest sessions and from other accounts.
-function pendingKey(owner: string, mode: CalculatorMode) {
-  return `aiggb.cloud.${owner}.${mode}`
+function pendingKey(owner: string, mode: CalculatorMode, id?: string | null) {
+  return id ? `aiggb.cloud.${owner}.session.${id}` : `aiggb.cloud.${owner}.${mode}`
 }
 
-export function readPendingCloud(owner: string, mode: CalculatorMode): CloudSession | null {
-  const value = readJson(pendingKey(owner, mode))
+function readPendingSnapshot(key: string): CloudSession | null {
+  const value = readJson(key)
   if (!value || typeof value !== 'object') return null
   const record = value as Partial<CloudSession>
-  if (record.mode !== mode) return null
+  const mode = record.mode
+  if (!mode || !modeIds.includes(mode)) return null
   return {
     ...normalizeSessions({ [mode]: record })[mode],
     mode,
@@ -68,9 +68,29 @@ export function readPendingCloud(owner: string, mode: CalculatorMode): CloudSess
   }
 }
 
-export function writePendingCloud(owner: string, mode: CalculatorMode, slot: CloudSession | null) {
-  if (slot) localStorage.setItem(pendingKey(owner, mode), JSON.stringify(slot))
-  else localStorage.removeItem(pendingKey(owner, mode))
+export function readPendingCloud(owner: string, mode: CalculatorMode): CloudSession | null {
+  const pending = readPendingSnapshot(pendingKey(owner, mode))
+  return pending?.mode === mode ? pending : null
+}
+
+export function readPendingSession(owner: string, id: string): CloudSession | null {
+  const pending = readPendingSnapshot(`aiggb.cloud.${owner}.session.${id}`)
+  if (pending?.id === id) return pending
+  // Older versions used one backup per mode. Recover it only for its own session.
+  for (const mode of modeIds) {
+    const legacy = readPendingCloud(owner, mode)
+    if (legacy?.id === id) return legacy
+  }
+  return null
+}
+
+export function writePendingCloud(owner: string, mode: CalculatorMode, slot: CloudSession | null, id = slot?.id) {
+  const key = pendingKey(owner, mode, id)
+  if (slot) localStorage.setItem(key, JSON.stringify(slot))
+  else localStorage.removeItem(key)
+  if (id && readPendingCloud(owner, mode)?.id === id) {
+    localStorage.removeItem(pendingKey(owner, mode))
+  }
 }
 
 export function clearLocalAiggbCache() {

@@ -56,8 +56,12 @@ export function sessionTitle(text: string) {
 
 export function safeRedirect(value: string | string[] | null | undefined) {
   const target = Array.isArray(value) ? value[0] : value
-  if (!target || !target.startsWith('/') || target.startsWith('//') || target.startsWith('/\\')) return '/'
+  if (!target || !target.startsWith('/') || target.startsWith('//') || target.startsWith('/\\')) return '/dashboard'
   return target
+}
+
+export function workspacePath(id: string) {
+  return `/workspace?session=${encodeURIComponent(id)}`
 }
 
 export function readableError(error: unknown, fallback: string) {
@@ -172,17 +176,32 @@ export async function loadCloudSession(id: string) {
   return fromSessionRecord(item as unknown as Record<string, unknown>)
 }
 
+const sessionWrites = new Map<string, Promise<Record<string, unknown>>>()
+
 export async function saveCloudSession(slot: CloudSession, messages: ChatTurn[], report: ConstructionReport | null, owner = authUser()?.id) {
   const user = authUser()
   if (!user || user.id !== owner) throw new Error('登录账号已改变，请重新同步')
-  const name = slot.id ? slot.name || '未命名会话' : sessionTitle(messages.find((item) => item.role === 'user')?.content || '')
-  const payload = { name, mode: slot.mode, messages, input: slot.input, report }
-  if (!slot.id) {
-    const created = await pb.collection('sessions').create({ ...payload, owner: user.id })
+  const payload = { messages, input: slot.input, report }
+  const id = slot.id
+  if (!id) {
+    const name = sessionTitle(messages.find((item) => item.role === 'user')?.content || '')
+    const created = await pb.collection('sessions').create({ ...payload, name, mode: slot.mode, owner: user.id })
     return { id: created.id, name: String(created.name || name) }
   }
-  await pb.collection('sessions').update(slot.id, payload)
-  return { id: slot.id, name }
+  const key = `${user.id}:${id}`
+  // A session can be reopened while its previous editor is still saving.
+  const previous = sessionWrites.get(key)
+  const write = (previous?.catch(() => undefined) ?? Promise.resolve()).then(() => {
+    if (authUser()?.id !== owner) throw new Error('登录账号已改变，请重新同步')
+    return pb.collection('sessions').update(id, payload)
+  })
+  sessionWrites.set(key, write)
+  try {
+    const updated = await write
+    return { id, name: String(updated.name || slot.name || '未命名会话') }
+  } finally {
+    if (sessionWrites.get(key) === write) sessionWrites.delete(key)
+  }
 }
 
 export function downloadJson(filename: string, data: unknown) {
