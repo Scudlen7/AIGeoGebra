@@ -9,7 +9,10 @@ import { Privacy, Terms } from './pages/Legal'
 import { Login } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { Register } from './pages/Register'
-import { Settings } from './pages/Settings'
+import { Settings, SettingsIndex } from './pages/Settings'
+import { DataSettings } from './pages/settings/Data'
+import { ModelSettings } from './pages/settings/Models'
+import { SecuritySettings } from './pages/settings/Security'
 import { NotFound } from './pages/NotFound'
 import { authUser, initPb, loggedIn } from './pb'
 import './styles.css'
@@ -22,7 +25,7 @@ const App = lazy(() => import('./App').then(({ App }) => ({ default: App })))
 function RequireAccount(props: ParentProps) {
   const location = useLocation()
   return (
-    <Show when={loggedIn() && authUser()?.id} keyed fallback={<Navigate href={() => `/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} />}>
+    <Show when={loggedIn() && authUser()?.id} keyed fallback={<Navigate href={() => `/login?redirect=${encodeURIComponent(location.pathname + location.search + location.hash)}`} />}>
       {(_owner) => props.children}
     </Show>
   )
@@ -75,7 +78,12 @@ async function boot() {
         <Route path="/terms" component={Terms} />
         <Route path="/privacy" component={Privacy} />
         <Route path="/dashboard" component={() => <RequireAccount><Dashboard /></RequireAccount>} />
-        <Route path="/settings" component={Settings} />
+        <Route path="/settings" component={(props: ParentProps) => <RequireAccount><Settings>{props.children}</Settings></RequireAccount>}>
+          <Route path="/" component={SettingsIndex} />
+          <Route path="/models" component={ModelSettings} />
+          <Route path="/security" component={SecuritySettings} />
+          <Route path="/data" component={DataSettings} />
+        </Route>
         <Route path="*404" component={NotFound} />
       </Router>
     ),

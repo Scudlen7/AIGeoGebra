@@ -1,10 +1,11 @@
-import { A } from '@solidjs/router'
+import { A, useSearchParams } from '@solidjs/router'
 import { createSignal, onCleanup, Show } from 'solid-js'
-import { AccountBar } from '../AccountBar'
 import { AuthLayout } from '../AuthLayout'
-import { postAuth, readableError, retryAfterOf } from '../api'
+import { postAuth, readableError, retryAfterOf, safeRedirect } from '../api'
 
 export function Forgot() {
+  const [params] = useSearchParams()
+  const loginLink = () => params.redirect ? `/login?redirect=${encodeURIComponent(safeRedirect(params.redirect))}` : '/login'
   const [step, setStep] = createSignal(1)
   const [email, setEmail] = createSignal('')
   const [code, setCode] = createSignal('')
@@ -83,53 +84,49 @@ export function Forgot() {
   }
 
   return (
-    <div class="subpage">
-      <AccountBar />
-      <AuthLayout>
-        <h1>找回密码</h1>
-        <ol class="steps">
-          <li classList={{ on: step() === 1 }}>填写邮箱</li>
-          <li classList={{ on: step() === 2 }}>验证并设置新密码</li>
-          <li classList={{ on: step() === 3 }}>完成</li>
-        </ol>
-        <Show when={step() === 1}>
-          <form class="stack-form" onSubmit={(event) => void send(event)}>
-            <label>
-              邮箱
-              <input type="email" value={email()} onInput={(event) => setEmail(event.currentTarget.value)} />
-            </label>
-            <button class="btn" type="submit" disabled={busy() || wait() > 0}>
-              {wait() > 0 ? `${wait()} 秒后重发` : busy() ? '发送中…' : '发送验证码'}
-            </button>
-          </form>
-        </Show>
-        <Show when={step() === 2}>
-          <form class="stack-form" onSubmit={(event) => void reset(event)}>
-            <p class="lede">验证码已发往 {email()}。如果这个邮箱没有注册，你不会收到邮件。</p>
-            <label>
-              验证码
-              <input inputMode="numeric" maxlength={4} value={code()} onInput={(event) => setCode(event.currentTarget.value)} />
-            </label>
-            <label>
-              新密码
-              <input type="password" autocomplete="new-password" value={password()} onInput={(event) => setPassword(event.currentTarget.value)} />
-            </label>
-            <label>
-              确认新密码
-              <input type="password" autocomplete="new-password" value={passwordConfirm()} onInput={(event) => setPasswordConfirm(event.currentTarget.value)} />
-            </label>
-            <button class="btn" type="submit" disabled={busy()}>{busy() ? '提交中…' : '重置密码'}</button>
-            <button class="btn ghost" type="button" disabled={wait() > 0} onClick={(event) => void send(event)}>
-              {wait() > 0 ? `${wait()} 秒后重发` : '重新发送'}
-            </button>
-          </form>
-        </Show>
-        <Show when={step() === 3}>
-          <p class="lede">密码已更新。请用新密码登录。</p>
-          <A class="btn" href="/login">去登录</A>
-        </Show>
-        {error() ? <p class="banner">{error()}</p> : null}
-      </AuthLayout>
-    </div>
+    <AuthLayout title="找回密码" description="通过邮箱验证码重设登录密码。" alternate={{ href: loginLink(), label: '登录' }}>
+      <ol class="steps" aria-label="找回密码进度">
+        <li classList={{ on: step() === 1 }}>填写邮箱</li>
+        <li classList={{ on: step() === 2 }}>验证并设置新密码</li>
+        <li classList={{ on: step() === 3 }}>完成</li>
+      </ol>
+      <Show when={step() === 1}>
+        <form class="stack-form" onSubmit={(event) => void send(event)}>
+          <label>
+            邮箱
+            <input type="email" autocomplete="email" placeholder="you@example.com" value={email()} onInput={(event) => setEmail(event.currentTarget.value)} />
+          </label>
+          <button class="btn" type="submit" disabled={busy() || wait() > 0}>
+            {wait() > 0 ? `${wait()} 秒后重发` : busy() ? '发送中…' : '发送验证码'}
+          </button>
+        </form>
+      </Show>
+      <Show when={step() === 2}>
+        <form class="stack-form" onSubmit={(event) => void reset(event)}>
+          <p class="lede">验证码已发往 {email()}。如果这个邮箱没有注册，你不会收到邮件。</p>
+          <label>
+            验证码
+            <input inputMode="numeric" autocomplete="one-time-code" maxlength={4} value={code()} onInput={(event) => setCode(event.currentTarget.value)} />
+          </label>
+          <label>
+            新密码
+            <input type="password" autocomplete="new-password" value={password()} onInput={(event) => setPassword(event.currentTarget.value)} />
+          </label>
+          <label>
+            确认新密码
+            <input type="password" autocomplete="new-password" value={passwordConfirm()} onInput={(event) => setPasswordConfirm(event.currentTarget.value)} />
+          </label>
+          <button class="btn" type="submit" disabled={busy()}>{busy() ? '提交中…' : '重置密码'}</button>
+          <button class="btn ghost" type="button" disabled={wait() > 0} onClick={(event) => void send(event)}>
+            {wait() > 0 ? `${wait()} 秒后重发` : '重新发送'}
+          </button>
+        </form>
+      </Show>
+      <Show when={step() === 3}>
+        <p class="lede" role="status">密码已更新。请用新密码登录。</p>
+        <A class="btn" href={loginLink()}>去登录</A>
+      </Show>
+      {error() ? <p class="banner" role="alert">{error()}</p> : null}
+    </AuthLayout>
   )
 }

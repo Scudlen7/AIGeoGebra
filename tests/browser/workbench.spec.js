@@ -26,7 +26,7 @@ async function mockServices(page) {
     if (path.endsWith('/auth-with-password') || path.endsWith('/auth-refresh') || path === '/api/auth/register') {
       return route.fulfill({ json: auth })
     }
-    if (path === '/api/auth/request-code') return route.fulfill({ json: { ok: true } })
+    if (path === '/api/auth/request-code' || path === '/api/auth/reset-password') return route.fulfill({ json: { ok: true } })
     if (request.headers().authorization !== token) return route.fulfill({ status: 403, json: { message: '登录后查看会话' } })
     if (path === '/api/usage/summary') return route.fulfill({ json: { requests: 0, tokens: 0, sessions: records.length, days: [], models: [] } })
     const base = '/api/collections/sessions/records'
@@ -112,6 +112,24 @@ test('login and registration both land on the personal workbench', async ({ page
   await page.getByRole('button', { name: '注册', exact: true }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
   await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()
+})
+
+test('password recovery preserves the original private settings destination', async ({ page }) => {
+  await mockServices(page)
+  await page.goto('/settings#account')
+  await expect(page).toHaveURL(/\/login\?redirect=/)
+  await page.getByRole('link', { name: '忘记密码' }).click()
+  await page.getByLabel('邮箱', { exact: true }).fill('test@example.test')
+  await page.getByRole('button', { name: '发送验证码' }).click()
+  await page.getByLabel('验证码').fill('1234')
+  await page.getByLabel('新密码', { exact: true }).fill('test-password')
+  await page.getByLabel('确认新密码').fill('test-password')
+  await page.getByRole('button', { name: '重置密码' }).click()
+  await expect(page.getByText('密码已更新。请用新密码登录。')).toBeVisible()
+  await page.getByRole('link', { name: '去登录' }).click()
+  await signIn(page)
+  await expect(page).toHaveURL(/\/settings\/security$/)
+  await expect(page.getByRole('heading', { name: '账户安全' })).toBeVisible()
 })
 
 test('workbench groups history and restores the selected drawing through a failed save and reload', async ({ page }) => {
