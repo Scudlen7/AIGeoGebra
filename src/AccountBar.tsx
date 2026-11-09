@@ -86,7 +86,7 @@ export function AccountBar(props: { workbenchMode?: CalculatorMode; sessionId?: 
       <button class="icon-btn sidebar-toggle" type="button" aria-controls="desktop-sidebar" aria-expanded={!collapsed()}
         aria-label={collapsed() ? '展开侧栏' : '折叠侧栏'} title={collapsed() ? '展开侧栏' : '折叠侧栏'} onClick={toggleSidebar}><Icon name="sidebar" /></button>
       <button ref={trigger} class="icon-btn mobile-menu" type="button" aria-controls="mobile-sidebar" aria-expanded={drawerOpen()} aria-label="打开导航" onClick={openDrawer}><Icon name="list" /></button>
-      <span class="breadcrumb">数学探索 / {location.pathname === '/try' ? '游客试用' : location.pathname === '/workspace' ? '作图工作区' : location.pathname === '/dashboard' ? '工作台' : location.pathname === '/settings' ? '偏好与账户' : '账户'}</span>
+      <span class="breadcrumb">数学探索 / {location.pathname === '/try' ? '游客试用' : location.pathname === '/workspace' ? '作图工作区' : location.pathname === '/dashboard' ? '工作台' : /^\/settings(?:\/|$)/.test(location.pathname) ? '设置' : '账户'}</span>
       <div class="topbar-gap" />
       <button class="icon-btn" aria-label={dark() ? '切换浅色' : '切换深色'} onClick={toggleTheme}><Icon name={dark() ? 'sun' : 'moon'} /></button>
       <Show when={loggedIn()} fallback={<div class="auth-links"><A href="/login">登录</A><A class="btn ghost" href="/register">创建账户 <Icon name="arrow-right" /></A></div>}>

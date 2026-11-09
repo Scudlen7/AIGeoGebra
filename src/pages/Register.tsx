@@ -1,6 +1,5 @@
 import { A, useNavigate, useSearchParams } from '@solidjs/router'
 import { createSignal, onCleanup } from 'solid-js'
-import { AccountBar } from '../AccountBar'
 import { AuthLayout } from '../AuthLayout'
 import { postAuth, readableError, retryAfterOf, safeRedirect } from '../api'
 import { pb } from '../pb'
@@ -92,46 +91,40 @@ export function Register() {
   }
 
   return (
-    <div class="subpage">
-      <AccountBar />
-      <AuthLayout>
-        <h1>注册</h1>
-        <p class="lede">验证码会发到邮箱，页面和接口都不会显示验证码。</p>
-        <form class="stack-form" onSubmit={(event) => void submit(event)}>
-          <label>
-            昵称
-            <input value={name()} minLength={2} onInput={(event) => setName(event.currentTarget.value)} />
-          </label>
-          <label>
-            邮箱
-            <input type="email" autocomplete="username" value={email()} onInput={(event) => setEmail(event.currentTarget.value)} />
-          </label>
-          <label>
-            验证码
-            <span class="code-row">
-              <input inputMode="numeric" maxlength={4} value={code()} onInput={(event) => setCode(event.currentTarget.value)} />
-              <button class="btn ghost" type="button" disabled={wait() > 0} onClick={() => void sendCode()}>
-                {wait() > 0 ? `${wait()} 秒后重发` : '发送验证码'}
-              </button>
-            </span>
-          </label>
-          <label>
-            密码
-            <input type="password" autocomplete="new-password" value={password()} onInput={(event) => setPassword(event.currentTarget.value)} />
-          </label>
-          <label>
-            确认密码
-            <input type="password" autocomplete="new-password" value={passwordConfirm()} onInput={(event) => setPasswordConfirm(event.currentTarget.value)} />
-          </label>
-          <label class="check">
-            <input type="checkbox" checked={agree()} onChange={(event) => setAgree(event.currentTarget.checked)} />
-            <span>我已阅读并同意 <A href="/terms">用户协议</A> 与 <A href="/privacy">隐私政策</A></span>
-          </label>
-          <button class="btn" type="submit" disabled={busy()}>{busy() ? '注册中…' : '注册'}</button>
-          {error() ? <p class="banner">{error()}</p> : null}
-          <p class="form-links"><A href={params.redirect ? `/login?redirect=${encodeURIComponent(safeRedirect(params.redirect))}` : '/login'}>已有账号，去登录</A></p>
-        </form>
-      </AuthLayout>
-    </div>
+    <AuthLayout title="创建账户" description="验证邮箱后进入个人工作台。" alternate={{ href: params.redirect ? `/login?redirect=${encodeURIComponent(safeRedirect(params.redirect))}` : '/login', label: '登录' }}>
+      <form class="stack-form" onSubmit={(event) => void submit(event)}>
+        <label>
+          昵称
+          <input value={name()} autocomplete="nickname" minLength={2} onInput={(event) => setName(event.currentTarget.value)} />
+        </label>
+        <label>
+          邮箱
+          <input type="email" autocomplete="username" placeholder="you@example.com" value={email()} onInput={(event) => setEmail(event.currentTarget.value)} />
+        </label>
+        <div class="form-field">
+          <label for="register-code">验证码</label>
+          <div class="code-row">
+            <input id="register-code" inputMode="numeric" autocomplete="one-time-code" maxlength={4} value={code()} onInput={(event) => setCode(event.currentTarget.value)} />
+            <button class="btn ghost" type="button" disabled={wait() > 0} onClick={() => void sendCode()}>
+              {wait() > 0 ? `${wait()} 秒后重发` : '发送验证码'}
+            </button>
+          </div>
+        </div>
+        <label>
+          密码
+          <input type="password" autocomplete="new-password" value={password()} onInput={(event) => setPassword(event.currentTarget.value)} />
+        </label>
+        <label>
+          确认密码
+          <input type="password" autocomplete="new-password" value={passwordConfirm()} onInput={(event) => setPasswordConfirm(event.currentTarget.value)} />
+        </label>
+        <label class="check">
+          <input type="checkbox" checked={agree()} onChange={(event) => setAgree(event.currentTarget.checked)} />
+          <span>我已阅读并同意 <A href="/terms">用户协议</A> 与 <A href="/privacy">隐私政策</A></span>
+        </label>
+        <button class="btn" type="submit" disabled={busy()}>{busy() ? '注册中…' : '注册'}</button>
+        {error() ? <p class="banner" role="alert">{error()}</p> : null}
+      </form>
+    </AuthLayout>
   )
 }
