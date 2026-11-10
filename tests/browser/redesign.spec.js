@@ -125,24 +125,30 @@ test('a personal Claude provider can be discovered, selected and used to draw', 
   const id = 'privateclaude01'
   const key = 'test-key-for-personal-claude'
   const model = 'claude-fixture'
-  const available = [{ id: model, label: 'Claude Fixture' }, { id: 'claude-fixture-fast', label: 'Claude Fixture Fast' }]
+  const fast = 'claude-fixture-fast'
+  const available = [{ id: model, label: 'Claude Fixture' }, { id: fast, label: 'Claude Fixture Fast' }]
+  const secondary = { id: 'routerfixture01', name: 'OpenRouter', protocol: 'openai', models: [{ id: 'router/math', label: '数学助手' }] }
   let saved
   let draws = 0
+  let finishSwitch
+  const waitForSwitch = new Promise(resolve => { finishSwitch = resolve })
   await page.route('**/api/models', route => route.fulfill({ json: [] }))
   await page.route('**/api/providers/discover', route => {
     expect(route.request().postDataJSON()).toMatchObject({ baseUrl: 'https://api.anthropic.com/v1', protocol: 'anthropic', apiKey: key })
     return route.fulfill({ json: available })
   })
   await page.route('**/api/providers', route => {
-    if (route.request().method() === 'GET') return route.fulfill({ json: saved ? [saved] : [] })
+    if (route.request().method() === 'GET') return route.fulfill({ json: saved ? [saved, secondary] : [] })
     const { name, baseUrl, protocol, models, apiKey } = route.request().postDataJSON()
     expect(apiKey).toBe(key)
     saved = { id, name, baseUrl, protocol, models }
     return route.fulfill({ status: 201, json: saved })
   })
-  await page.route('http://pb.test/api/collections/users/records/design-user', route => route.fulfill({
-    json: { ...testAccount, ...route.request().postDataJSON() },
-  }))
+  await page.route('http://pb.test/api/collections/users/records/design-user', async route => {
+    const patch = route.request().postDataJSON()
+    if (patch.model === `personal:${id}:${fast}`) await waitForSwitch
+    return route.fulfill({ json: { ...testAccount, ...patch } })
+  })
   await page.route(`**/api/providers/${id}/test`, route => {
     expect(route.request().postDataJSON()).toEqual({ model })
     return route.fulfill({ json: { ok: true, latencyMs: 42 } })
@@ -150,13 +156,13 @@ test('a personal Claude provider can be discovered, selected and used to draw', 
   await page.route(`**/api/providers/${id}/messages`, route => {
     const request = route.request()
     const body = request.postDataJSON()
-    expect(body.model).toBe(model)
+    expect(body.model).toBe(fast)
     expect(request.headers()['x-api-key']).not.toBe(key)
     expect(request.headers()['x-pb-token']).toBeTruthy()
     const first = draws++ === 0
     if (first) expect(body.tool_choice).toMatchObject({ type: 'tool', name: 'applyCommands' })
     const events = [
-      { type: 'message_start', message: { id: 'msg_test', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } },
+      { type: 'message_start', message: { id: 'msg_test', type: 'message', role: 'assistant', model: fast, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } },
       { type: 'content_block_start', index: 0, content_block: first ? { type: 'tool_use', id: 'toolu_test', name: 'applyCommands', input: {} } : { type: 'text', text: '' } },
       { type: 'content_block_delta', index: 0, delta: first ? { type: 'input_json_delta', partial_json: '{"commands":["A=(0,0)"]}' } : { type: 'text_delta', text: '个人模型已完成作图。' } },
       { type: 'content_block_stop', index: 0 },
@@ -189,12 +195,73 @@ test('a personal Claude provider can be discovered, selected and used to draw', 
   await expect(main.getByLabel('API Key', { exact: true })).toHaveValue('')
   await main.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('link', { name: '作图工作区', exact: true }).click()
-  await expect(page.getByLabel('当前模型')).toHaveValue(`personal:${id}:${model}`)
+  const picker = page.getByRole('button', { name: /^当前模型/ })
+  await expect(picker).toContainText('Claude Fixture · Claude（Anthropic）')
   await page.getByLabel('描述你的问题').fill('画原点 A')
-  await page.getByRole('button', { name: '作图', exact: true }).click()
+  const draw = page.getByRole('button', { name: '作图', exact: true })
+  await picker.click()
+  const search = page.getByRole('combobox', { name: '搜索模型' })
+  const list = page.getByRole('listbox', { name: '可用模型' })
+  await expect(list.getByRole('group', { name: 'Claude（Anthropic）' })).toBeVisible()
+  await expect(list.getByRole('group', { name: 'OpenRouter' })).toBeVisible()
+  await page.screenshot({ path: 'test-results/workspace-model-picker-desktop.png' })
+  await search.fill('claude fixture')
+  await expect(list.getByRole('option')).toHaveCount(2)
+  await search.press('ArrowDown')
+  await search.press('Enter')
+  await expect(picker).toHaveAttribute('aria-disabled', 'true')
+  await expect(draw).toBeDisabled()
+  finishSwitch()
+  await expect(picker).toContainText('Claude Fixture Fast')
+  await expect(picker).toBeFocused()
+  await draw.click()
   await expect(page.getByText('个人模型已完成作图。')).toBeVisible()
   expect(await page.evaluate(() => window.lastCommand)).toBe('A=(0,0)')
   expect(draws).toBe(2)
+})
+
+test('the workspace can search a large model list and pick a first model on mobile', async ({ page }) => {
+  await mockServices(page, true)
+  await page.setViewportSize({ width: 320, height: 820 })
+  const provider = 'routerfixture01'
+  await page.route('**/api/models', route => route.fulfill({ json: [{ id: 'trial-model', label: '试用模型', gateway: true }] }))
+  await page.route('**/api/providers', route => route.fulfill({ json: [
+    { id: 'privateclaude01', name: 'Claude', protocol: 'anthropic', models: [{ id: 'claude-main', label: 'Claude 主模型' }] },
+    { id: provider, name: 'OpenRouter', protocol: 'openai', models: Array.from({ length: 64 }, (_, index) => ({ id: `orbit-${index}`, label: `数学模型 ${index}` })) },
+  ] }))
+  const saved = []
+  await page.route('http://pb.test/api/collections/users/records/design-user', route => {
+    const patch = route.request().postDataJSON()
+    saved.push(patch.model)
+    return route.fulfill({ json: { ...testAccount, ...patch } })
+  })
+
+  await page.goto('/workspace')
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+  const picker = page.getByRole('button', { name: /^当前模型/ })
+  await expect(picker).toContainText('选择模型')
+  await picker.click()
+  const search = page.getByRole('combobox', { name: '搜索模型' })
+  const list = page.getByRole('listbox', { name: '可用模型' })
+  await expect(search).toBeFocused()
+  await expect(list.getByRole('group', { name: '平台试用' }).getByRole('option', { name: /试用模型/ })).toHaveCount(1)
+  expect(await list.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+  await page.screenshot({ path: 'test-results/workspace-model-picker-mobile.png' })
+  await search.fill('没有这个模型')
+  await expect(page.getByRole('status').filter({ hasText: '未找到匹配的模型' })).toBeVisible()
+  await search.press('Escape')
+  await expect(search).toBeHidden()
+  await expect(picker).toBeFocused()
+  expect(saved).toEqual([])
+
+  await picker.click()
+  await expect(search).toHaveValue('')
+  await search.fill('OPENROUTER orbit-52')
+  await expect(list.getByRole('option')).toHaveCount(1)
+  await list.getByRole('option', { name: /数学模型 52/ }).click()
+  await expect(picker).toContainText('数学模型 52 · OpenRouter')
+  expect(saved).toEqual([`personal:${provider}:orbit-52`])
 })
 
 test('mobile custom providers can save a manual model when discovery is unavailable', async ({ page }) => {
