@@ -9,6 +9,7 @@ import { createServer } from 'node:net'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { verifyUser, recordUsage } from '../../functions/_lib/usage.js'
+import { providersRequest } from '../../server/model-providers.js'
 
 // This suite always creates its own database and SMTP inbox. It never uses .env.
 test('real PocketBase account, email, session and usage integration', { timeout: 90000 }, async t => {
@@ -164,6 +165,97 @@ test('real PocketBase account, email, session and usage integration', { timeout:
     assert.equal((await api('/api/usage/summary')).status, 401)
     assert.equal((await post('/api/collections/usage_events/records', { owner: alice.record.id, model: 'fake' }, alice.token)).status, 403)
   })
+  let aliceProvider
+  await t.test('personal providers keep keys private and stream only for their owner', async () => {
+    const env = {
+      PB_URL: base, PB_SUPERUSER_EMAIL: 'admin@example.test', PB_SUPERUSER_PASSWORD: password,
+      MODEL_PROVIDER_ENCRYPTION_KEY: '45'.repeat(32),
+    }
+    const path = '/api/providers'
+    const key = 'fixture-alice-private-key'
+    const upstreamCalls = []
+    const fixture = [
+      'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":8,"output_tokens":1}}}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":3}}\n\n',
+    ].join('')
+    async function upstream(url, options) {
+      upstreamCalls.push({ url: url.href, headers: options.headers, body: options.body && JSON.parse(options.body) })
+      if (url.hostname === 'redirect.example.com') return new Response(null, { status: 302, headers: { location: 'https://127.0.0.1/' } })
+      if (url.pathname.endsWith('/models')) {
+        if (url.searchParams.has('after_id')) return Response.json({ data: [{ id: 'second-model' }], has_more: false })
+        return Response.json({ data: [{ id: 'claude-fixture', display_name: 'Claude Fixture' }, { id: key }], has_more: true, last_id: 'claude-fixture' })
+      }
+      if (!JSON.parse(options.body).stream) return Response.json({ content: [{ type: 'text', text: 'OK' }], choices: [{ message: { content: 'OK' } }] })
+      return new Response(fixture, { headers: { 'content-type': 'text/event-stream' } })
+    }
+    async function request(token, suffix = '', method = 'GET', body) {
+      return providersRequest(new Request(`https://app.example.test${path}${suffix}`, {
+        method, headers: { 'x-pb-token': token ?? '', cookie: 'app-secret-cookie=1' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }), env, upstream)
+    }
+    const input = { name: 'Alice Claude', baseUrl: 'https://api.anthropic.com', protocol: 'anthropic', apiKey: key }
+    assert.equal((await request('', '/discover', 'POST', input)).status, 401)
+    assert.equal(upstreamCalls.length, 0)
+    const found = await (await request(alice.token, '/discover', 'POST', input)).json()
+    assert.deepEqual(found, [{ id: 'claude-fixture', label: 'Claude Fixture' }, { id: 'second-model', label: 'second-model' }])
+    assert.equal(upstreamCalls[0].url, 'https://api.anthropic.com/v1/models?limit=100')
+    assert.equal(upstreamCalls[0].headers['x-api-key'], key)
+    const created = await request(alice.token, '', 'POST', { ...input, models: found, owner: bob.record.id })
+    assert.equal(created.status, 201)
+    const raw = await created.text()
+    assert.ok(!raw.includes(key) && !raw.includes('keyCiphertext'))
+    const saved = JSON.parse(raw)
+    aliceProvider = saved.id
+    const collection = '/api/collections/model_providers/records'
+    assert.equal((await api(`${collection}/${saved.id}`, { token: alice.token })).status, 403)
+    const adminRecord = (await api(`${collection}/${saved.id}`, { token: admin })).data
+    assert.equal(adminRecord.owner, alice.record.id)
+    assert.ok(adminRecord.keyCiphertext && !adminRecord.keyCiphertext.includes(key))
+    assert.deepEqual(await (await request(bob.token)).json(), [])
+    assert.deepEqual(await (await request(alice.token)).json(), [saved])
+    assert.equal((await request(bob.token, '/' + saved.id, 'DELETE')).status, 404)
+    assert.equal((await request(bob.token, '/' + saved.id + '/messages', 'POST', { model: 'claude-fixture' })).status, 404)
+    assert.equal((await request(bob.token, '/discover', 'POST', { ...input, id: saved.id, apiKey: '' })).status, 404)
+    assert.equal((await request(alice.token, '/discover', 'POST', { ...input, id: saved.id, apiKey: '', baseUrl: 'https://different.example.com/v1' })).status, 400)
+    assert.equal(upstreamCalls.length, 2)
+    assert.equal((await request(alice.token, '/' + saved.id, 'PUT', { ...saved, name: 'Renamed Claude' })).status, 200)
+    assert.equal((await request(alice.token, '/' + saved.id + '/messages', 'POST', { model: 'unlisted' })).status, 404)
+    const tested = await request(alice.token, '/' + saved.id + '/test', 'POST', { model: 'claude-fixture' })
+    assert.equal((await tested.json()).ok, true)
+    const turn = await request(alice.token, '/' + saved.id + '/messages', 'POST', { model: 'claude-fixture', stream: true })
+    assert.equal(turn.headers.get('cache-control'), 'no-store')
+    assert.equal(await turn.text(), fixture)
+    const forwarded = upstreamCalls.at(-1)
+    assert.equal(forwarded.url, 'https://api.anthropic.com/v1/messages')
+    assert.equal(forwarded.headers['x-api-key'], key)
+    assert.equal(forwarded.headers['x-pb-token'], undefined)
+    assert.equal(forwarded.headers.cookie, undefined)
+    let summary
+    for (let attempt = 0; attempt < 20; attempt++) {
+      summary = (await api('/api/usage/summary', { token: alice.token })).data
+      if (summary.requests === 2) break
+      await delay(25)
+    }
+    assert.equal(summary.tokens, 26)
+    assert.equal((await api('/api/usage/summary', { token: bob.token })).data.requests, 0)
+
+    const openAiInput = {
+      name: 'Bob custom', baseUrl: 'https://public.example.com/custom/', protocol: 'openai',
+      apiKey: 'fixture-bob-private-key', models: [{ id: 'manual-model' }],
+    }
+    const bobProvider = await (await request(bob.token, '', 'POST', openAiInput)).json()
+    assert.equal(bobProvider.baseUrl, 'https://public.example.com/custom')
+    const compatible = await request(bob.token, '/' + bobProvider.id + '/chat/completions', 'POST', { model: 'manual-model', stream: false })
+    assert.equal(compatible.status, 200)
+    await compatible.text()
+    assert.equal(upstreamCalls.at(-1).url, 'https://public.example.com/custom/chat/completions')
+    assert.equal(upstreamCalls.at(-1).headers.authorization, 'Bearer fixture-bob-private-key')
+    assert.equal((await request(bob.token, '/' + bobProvider.id, 'DELETE')).status, 200)
+    const redirected = await request(bob.token, '/discover', 'POST', { ...openAiInput, baseUrl: 'https://redirect.example.com/v1' })
+    assert.equal(redirected.status, 422)
+    assert.ok(!(await redirected.text()).includes('127.0.0.1'))
+  })
   await t.test('password reset invalidates old credentials and cannot reuse a code', async () => {
     assert.equal((await post('/api/auth/request-code', { email, purpose: 'reset' })).status, 200)
     const body = { email, password: `${password}-reset`, passwordConfirm: `${password}-reset`, code: lastCode() }
@@ -187,10 +279,12 @@ test('real PocketBase account, email, session and usage integration', { timeout:
     alice = login.data
     assert.equal(alice.record.verified, true)
   })
-  await t.test('account deletion removes its sessions and usage, preserving other accounts', async () => {
+  await t.test('account deletion removes its sessions, providers and usage, preserving other accounts', async () => {
     assert.equal((await api(`/api/collections/users/records/${alice.record.id}`, { method: 'DELETE', token: alice.token })).status, 204)
     assert.equal((await api(`/api/collections/sessions/records/${session.id}`, { token: admin })).status, 404)
-    assert.equal((await api('/api/collections/usage_events/records', { token: admin })).data.totalItems, 0)
+    assert.equal((await api(`/api/collections/model_providers/records/${aliceProvider}`, { token: admin })).status, 404)
+    const usage = (await api('/api/collections/usage_events/records', { token: admin })).data.items
+    assert.deepEqual(usage.map((item) => item.owner), [bob.record.id])
     assert.equal((await post('/api/collections/users/auth-refresh', {}, bob.token)).status, 200)
   })
 })

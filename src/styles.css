@@ -1392,6 +1392,127 @@ label {
 .settings-feedback,.settings-content .banner {
   margin:var(--s3) 0
 }
+.provider-heading {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:var(--s3)
+}
+.provider-heading .btn,.provider-actions .btn,.provider-default-controls .btn,.provider-manual .btn {
+  flex:none
+}
+.provider-default-controls {
+  display:flex;
+  gap:var(--s2);
+  align-items:center;
+  min-width:0
+}
+.settings-default-model .provider-default-controls select {
+  flex:1;
+  width:0;
+  min-width:0
+}
+.provider-test-result {
+  grid-column:1/-1
+}
+.provider-row {
+  align-items:center
+}
+.provider-summary {
+  min-width:0;
+  overflow-wrap:anywhere
+}
+.provider-summary .settings-badge {
+  margin-inline-start:var(--s2)
+}
+.provider-empty {
+  padding:var(--s4);
+  margin-top:var(--s3);
+  background:var(--soft);
+  border-radius:var(--r1);
+  color:var(--muted);
+  font-size:14px
+}
+.provider-back {
+  padding:0;
+  margin-bottom:var(--s3);
+  border:0;
+  background:transparent;
+  color:var(--accent);
+  font-size:14px
+}
+.provider-form fieldset {
+  display:grid;
+  gap:var(--s4);
+  min-width:0;
+  padding:0;
+  margin:0;
+  border:0
+}
+.provider-form label,.provider-field {
+  display:grid;
+  gap:var(--s2);
+  min-width:0
+}
+.provider-form input,.provider-form select {
+  width:100%;
+  border-color:var(--border)
+}
+.provider-form small,.provider-model-list small {
+  display:block;
+  color:var(--muted);
+  font-size:12px
+}
+.provider-fields {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));
+  gap:var(--s3)
+}
+.provider-models {
+  display:grid;
+  gap:var(--s3);
+  border:1px solid var(--border);
+  border-radius:var(--r2);
+  padding:var(--s3)
+}
+.provider-models h3 {
+  font-size:16px;
+  line-height:1.5
+}
+.provider-model-list {
+  list-style:none;
+  margin:0;
+  padding:0 var(--s2) 0 0;
+  max-height:200px;
+  overflow:auto
+}
+.provider-model-list li {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--s3);
+  border-bottom:1px solid var(--border);
+  padding:var(--s2) 0;
+  overflow-wrap:anywhere;
+  font-size:14px
+}
+.provider-model-list .btn {
+  min-height:36px;
+  flex:none
+}
+.provider-actions,.provider-manual {
+  display:flex;
+  gap:var(--s2);
+  align-items:center
+}
+.provider-actions {
+  justify-content:flex-end
+}
+.provider-manual input {
+  flex:1;
+  width:0
+}
 .settings-gateway {
   margin-top:var(--s6);
   padding:var(--s3) var(--s4);

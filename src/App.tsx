@@ -10,12 +10,13 @@ import { AccountBar } from './AccountBar'
 import { Icon } from './Icon'
 import { blankCloud, fetchModels, loadCloudSession, readableError, saveCloudSession, latestCloudSession, type CloudSession, type PublicModel } from './api'
 import { captureBoard, getApi, listObjects, mountBoard, onBoardChange, resetBoard, resizeBoard, restoreBoard, restoreCommands, setCoordinateSystem, unmountBoard } from './board'
-import { fetchLlmStatus, hasFailure, runTurn } from './chat'
+import { hasFailure, runTurn } from './chat'
 import { renderMarkdown } from './markdown'
 import { isCalculatorMode, modeDefinition, modeList } from './modes'
 import { authUser, loggedIn, pb } from './pb'
+import { fetchProviders, personalModels, preferredModel } from './providers'
 import { emptySession, emptySessions, migrateLegacyStorage, modeStorageKey, normalizeSessions, readPendingCloud, readPendingSession, sessionStorageKey, writePendingCloud } from './session'
-import type { AngleUnit, CalculatorMode, ChatTurn, ConstructionReport, LlmStatus, ModeSession, SessionMap } from './types'
+import type { AngleUnit, CalculatorMode, ChatTurn, ConstructionReport, ModeSession, SessionMap } from './types'
 
 const statusLabel = {
   ok: '已执行',
@@ -34,7 +35,7 @@ function emptyCloudMap(): Record<CalculatorMode, CloudSession> {
 
 export function App(props: { sessionId?: string; onModeChange?: (mode: CalculatorMode) => void }) {
   migrateLegacyStorage()
-  const [llm, setLlm] = createSignal<LlmStatus>({ configured: false, model: '' })
+  const [loadingModels, setLoadingModels] = createSignal(true)
   const [models, setModels] = createSignal<PublicModel[]>([])
   const [boardReady, setBoardReady] = createSignal(false)
   const [boardError, setBoardError] = createSignal('')
@@ -68,6 +69,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
   let controller: AbortController | undefined
   let copyTimer: number | undefined
   let loadGeneration = 0
+  let modelGeneration = 0
   let cloudGeneration = 0
   let authSeen = ''
   let turnGeneration = 0
@@ -91,13 +93,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
   const messagesFor = (id: CalculatorMode) => (loggedIn() ? cloudSlots()[id]?.messages ?? [] : (sessions()[id] ?? emptySession()).messages)
   const shownName = () => cloudSlots()[activeMode()]?.name || '未命名会话'
 
-  function requestModel() {
-    const list = models()
-    const fallback = list[0]?.id || llm().model
-    if (!loggedIn()) return fallback
-    const chosen = String(authUser()?.model || '')
-    return list.some((item) => item.id === chosen) ? chosen : fallback
-  }
+  const requestModel = () => preferredModel(models(), authUser()?.model)
 
   const renderDraft = throttle((text: string) => setDraft(text), 80)
   const resizeThrottled = throttle((width: number, height: number) => resizeBoard(width, height), 120)
@@ -354,6 +350,20 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
     if (generation === loadGeneration && owner === ownerId()) await loadBoard(activeMode())
   }
 
+  async function loadModels() {
+    const generation = ++modelGeneration
+    const owner = ownerId()
+    setLoadingModels(true)
+    setModels([])
+    const [platform, personal] = await Promise.allSettled([fetchModels(), owner ? fetchProviders() : Promise.resolve([])])
+    if (generation !== modelGeneration || owner !== ownerId()) return
+    setModels([
+      ...(personal.status === 'fulfilled' ? personalModels(personal.value) : []),
+      ...(platform.status === 'fulfilled' ? platform.value : []),
+    ])
+    setLoadingModels(false)
+  }
+
   async function chooseModel(modelId: string) {
     const user = authUser()
     if (!user) return
@@ -396,19 +406,12 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
       setError('')
       setBoardReady(false)
       setSyncNote({ ok: false, text: '' })
+      void loadModels()
       void loadWorkspace()
     })
     onCleanup(stop)
 
-    void (async () => {
-      try {
-        const [status, list] = await Promise.all([fetchLlmStatus(), fetchModels()])
-        setLlm(status)
-        setModels(list)
-      } catch {
-        setLlm({ configured: false, model: '' })
-      }
-    })()
+    void loadModels()
     if (!isCalculatorMode(mode())) setMode('geometry')
     void loadWorkspace()
   })
@@ -421,6 +424,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
   onCleanup(() => {
     captureWorkspace(loadedOwner)
     if (loadedOwner === ownerId() && activeSession().id) void syncCloud(activeMode(), true)
+    modelGeneration += 1
     turnGeneration += 1
     loadGeneration += 1
     cloudGeneration += 1
@@ -463,7 +467,8 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
 
   async function submit(text = activeSession().input.trim()) {
     const id = activeMode()
-    if (!text || running() || !boardReady() || !llm().configured || !modeDefinition(id).ready) return
+    const model = requestModel()
+    if (!text || running() || !boardReady() || !model || !modeDefinition(id).ready) return
     captureWorkspace()
     controller?.abort()
     const requestController = new AbortController()
@@ -486,7 +491,8 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
       const answer = await runTurn({
         mode: id,
         angleUnit: unit(),
-        model: requestModel(),
+        model: model.id,
+        connection: model.connection,
         messages: history,
         signal: requestController.signal,
         onText: (text) => {
@@ -556,11 +562,11 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
         </div>
         <p class="lede">{current().lede}</p>
         <div class="model-slot">
-          <Show when={llm().configured} fallback={<p class="meta">模型未配置</p>}>
-            <Show when={loggedIn() && models().length > 0} fallback={<p class="meta">当前模型 {models().find((item) => item.id === requestModel())?.label || llm().model}</p>}>
+          <Show when={requestModel()} fallback={<p class="meta">{loadingModels() ? '正在读取模型…' : '模型未配置'}</p>}>
+            <Show when={loggedIn()} fallback={<p class="meta">当前模型 {requestModel()?.label}</p>}>
               <label class="model-switch">
                 当前模型
-                <select value={requestModel()} disabled={running()} onChange={(event) => void chooseModel(event.currentTarget.value)}>
+                <select value={requestModel()?.id} disabled={running()} onChange={(event) => void chooseModel(event.currentTarget.value)}>
                   <For each={models()}>{(item) => <option value={item.id}>{item.label}</option>}</For>
                 </select>
               </label>
@@ -600,7 +606,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
               {(example) => (
                 <button
                   type="button"
-                  disabled={running() || !boardReady() || !llm().configured}
+                  disabled={running() || !boardReady() || !requestModel()}
                   onClick={() => void submit(example)}
                 >
                   {example}
@@ -615,7 +621,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
               {(id) => (
                 <>
                   <Show when={messagesFor(id).length === 0 && !draft()}>
-                    <div class="welcome"><Icon name="function" /><h2>今天，想探索什么？</h2><p class="lede">{modeDefinition(id).empty}</p><div class="examples"><button disabled={running() || !boardReady() || !llm().configured} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div></div>
+                    <div class="welcome"><Icon name="function" /><h2>今天，想探索什么？</h2><p class="lede">{modeDefinition(id).empty}</p><div class="examples"><button disabled={running() || !boardReady() || !requestModel()} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div></div>
                   </Show>
                   <TransitionGroup name="msg">
                     <For each={messagesFor(id)}>
@@ -639,9 +645,11 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
             <Show when={error()}>
               <p class="banner">{error()}</p>
             </Show>
-            <Show when={!llm().configured}>
+            <Show when={!loadingModels() && !requestModel()}>
               <p class="banner">
-                数学助手暂未就绪，请稍后重试或联系管理员。你仍可直接使用画板。
+                {loggedIn()
+                  ? <>请在 <a class="back-link" href="/settings/models">模型偏好</a> 中添加供应商并选择模型。</>
+                  : <>你可以直接使用画板，也可以<a class="back-link" href="/login">登录</a>后配置自己的数学助手。</>}
               </p>
             </Show>
           </div>
@@ -674,7 +682,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
               </button>
               <button
                 type="submit"
-                disabled={running() || !boardReady() || !llm().configured || !current().ready || !activeSession().input.trim()}
+                disabled={running() || !boardReady() || !requestModel() || !current().ready || !activeSession().input.trim()}
               >
                 {running() ? `${current().submitLabel}中…` : current().submitLabel}
               </button>

@@ -36,7 +36,7 @@ export function DataSettings() {
   async function deleteAccount() {
     const user = authUser()
     if (!user || deleting()) return
-    if (!window.confirm('删除账号会永久移除你的云端会话和用量记录。确定删除？')) return
+    if (!window.confirm('删除账号会永久移除你的云端会话和用量记录，以及个人供应商配置和 API Key。确定删除？')) return
     const token = pb.authStore.token
     setDeleting(true)
     setError('')
@@ -73,7 +73,7 @@ export function DataSettings() {
       <div class="settings-danger">
         <h3>危险操作</h3>
         <div class="settings-row">
-          <div><h4 class="settings-row-title">永久删除账号</h4><p>删除后，你的云端会话和用量记录会永久移除。</p></div>
+          <div><h4 class="settings-row-title">永久删除账号</h4><p>删除后，你的云端会话、用量记录和个人供应商配置会永久移除。</p></div>
           <button class="btn danger" type="button" disabled={deleting()} onClick={() => void deleteAccount()}>{deleting() ? '删除中…' : '删除账号'}</button>
         </div>
       </div>

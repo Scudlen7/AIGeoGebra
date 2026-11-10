@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "3.0.140",
     "@ai-sdk/openai-compatible": "^2.0.81",
     "@solid-primitives/autofocus": "^0.1.5",
     "@solid-primitives/clipboard": "^1.6.6",

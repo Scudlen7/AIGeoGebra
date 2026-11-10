@@ -3,7 +3,23 @@ import test from 'node:test'
 import { proxyLlm } from '../functions/_lib/llm.js'
 import { setImmediate } from 'node:timers/promises'
 
-const env = { LLM_BASE_URL: 'https://example.invalid/v1', LLM_API_KEY: 'test-key', LLM_MODEL: 'test' }
+const env = { LLM_ENABLE_PLATFORM_MODELS: 'true', LLM_BASE_URL: 'https://example.invalid/v1', LLM_API_KEY: 'test-key', LLM_MODEL: 'test' }
+
+test('the platform key is opt-in and cannot be used for an unknown personal model', async () => {
+  const originalFetch = globalThis.fetch
+  let upstreamCalls = 0
+  globalThis.fetch = async () => { upstreamCalls++; return Response.json({}) }
+  const request = model => new Request('https://local.invalid/llm/chat/completions', {
+    method: 'POST', body: JSON.stringify({ model, messages: [] }),
+  })
+  try {
+    assert.equal((await proxyLlm(request('test'), { ...env, LLM_ENABLE_PLATFORM_MODELS: '' })).status, 503)
+    assert.equal((await proxyLlm(request('personal:private:model'), env)).status, 404)
+    assert.equal(upstreamCalls, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
 
 test('proxy propagates browser cancellation to the upstream request', async () => {
   const originalFetch = globalThis.fetch

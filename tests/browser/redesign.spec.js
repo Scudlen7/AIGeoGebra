@@ -18,6 +18,7 @@ async function mockServices(page, authenticated = false) {
     { id: 'test', label: '数学模型', gateway: false },
     { id: 'via-gateway', label: '推理模型（网关）', gateway: true },
   ] }))
+  await page.route('**/api/providers', route => route.fulfill({ json: [] }))
   await page.route('**/api/gateway', route => route.fulfill({ json: { items: [
     { id: 'via-gateway', label: '推理模型', endpoint: 'https://gateway.example.test/v1' },
   ] } }))
@@ -30,7 +31,7 @@ async function mockServices(page, authenticated = false) {
     : { page: 1, perPage: 100, totalItems: sampleSessions.length, totalPages: 1, items: sampleSessions } }))
   await page.route('**/deployggb.js', route => route.fulfill({ contentType: 'application/javascript', body: `window.GGBApplet=class {
     constructor(options){this.options=options;window.injectCount=(window.injectCount||0)+1} setHTML5Codebase(){}
-    inject(){this.options.appletOnLoad({setErrorDialogsActive(){},setSize(w,h){window.lastBoardSize=[w,h]},setAxesVisible(){},setGridVisible(){},getAllObjectNames(){return []},getXML(){return '<geogebra><construction/></geogebra>'}})}
+    inject(){this.options.appletOnLoad({setErrorDialogsActive(){},setSize(w,h){window.lastBoardSize=[w,h]},setAxesVisible(){},setGridVisible(){},getAllObjectNames(){return []},getXML(){return '<geogebra><construction/></geogebra>'},evalCommand(command){window.lastCommand=command;return true}})}
   }` }))
 }
 
@@ -117,6 +118,109 @@ test('model settings save the selection, show connection results, and collapse g
   await expect(endpoint).toBeHidden()
   await page.getByText('网关详情').click()
   await expect(endpoint).toBeVisible()
+})
+
+test('a personal Claude provider can be discovered, selected and used to draw', async ({ page }) => {
+  await mockServices(page, true)
+  const id = 'privateclaude01'
+  const key = 'test-key-for-personal-claude'
+  const model = 'claude-fixture'
+  const available = [{ id: model, label: 'Claude Fixture' }, { id: 'claude-fixture-fast', label: 'Claude Fixture Fast' }]
+  let saved
+  let draws = 0
+  await page.route('**/api/models', route => route.fulfill({ json: [] }))
+  await page.route('**/api/providers/discover', route => {
+    expect(route.request().postDataJSON()).toMatchObject({ baseUrl: 'https://api.anthropic.com/v1', protocol: 'anthropic', apiKey: key })
+    return route.fulfill({ json: available })
+  })
+  await page.route('**/api/providers', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: saved ? [saved] : [] })
+    const { name, baseUrl, protocol, models, apiKey } = route.request().postDataJSON()
+    expect(apiKey).toBe(key)
+    saved = { id, name, baseUrl, protocol, models }
+    return route.fulfill({ status: 201, json: saved })
+  })
+  await page.route('http://pb.test/api/collections/users/records/design-user', route => route.fulfill({
+    json: { ...testAccount, ...route.request().postDataJSON() },
+  }))
+  await page.route(`**/api/providers/${id}/test`, route => {
+    expect(route.request().postDataJSON()).toEqual({ model })
+    return route.fulfill({ json: { ok: true, latencyMs: 42 } })
+  })
+  await page.route(`**/api/providers/${id}/messages`, route => {
+    const request = route.request()
+    const body = request.postDataJSON()
+    expect(body.model).toBe(model)
+    expect(request.headers()['x-api-key']).not.toBe(key)
+    expect(request.headers()['x-pb-token']).toBeTruthy()
+    const first = draws++ === 0
+    if (first) expect(body.tool_choice).toMatchObject({ type: 'tool', name: 'applyCommands' })
+    const events = [
+      { type: 'message_start', message: { id: 'msg_test', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } },
+      { type: 'content_block_start', index: 0, content_block: first ? { type: 'tool_use', id: 'toolu_test', name: 'applyCommands', input: {} } : { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: first ? { type: 'input_json_delta', partial_json: '{"commands":["A=(0,0)"]}' } : { type: 'text_delta', text: '个人模型已完成作图。' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: first ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: 3 } },
+      { type: 'message_stop' },
+    ]
+    return route.fulfill({ contentType: 'text/event-stream', body: events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('') })
+  })
+
+  await page.setViewportSize({ width: 1440, height: 960 })
+  await page.goto('/settings/models')
+  const main = page.getByRole('main')
+  await main.getByRole('button', { name: '添加供应商' }).click()
+  await main.getByLabel('供应商预设').selectOption('Claude（Anthropic）')
+  await expect(main.getByLabel('API 基础地址')).toHaveValue('https://api.anthropic.com/v1')
+  await expect(main.getByLabel('API 协议')).toHaveValue('anthropic')
+  await main.getByLabel('API Key', { exact: true }).fill(key)
+  await main.getByRole('button', { name: '获取模型列表' }).click()
+  await expect(main.getByText('已获取 2 个模型')).toBeVisible()
+  await main.getByLabel('API Key', { exact: true }).blur()
+  await page.screenshot({ path: 'test-results/provider-form-desktop.png', fullPage: true })
+  await main.getByRole('button', { name: '保存供应商' }).click()
+  const selection = main.getByLabel('默认模型')
+  await expect(selection).toHaveValue('')
+  await selection.selectOption(`personal:${id}:${model}`)
+  await expect(main.getByText('默认模型已保存，下次请求生效')).toBeVisible()
+  await main.getByRole('button', { name: /^测试连接 Claude Fixture/ }).click()
+  await expect(main.getByText('已连通，42 ms')).toBeVisible()
+  await main.getByRole('button', { name: /编辑 Claude/ }).click()
+  await expect(main.getByLabel('API Key', { exact: true })).toHaveValue('')
+  await main.getByRole('button', { name: '取消', exact: true }).click()
+  await page.getByRole('link', { name: '作图工作区', exact: true }).click()
+  await expect(page.getByLabel('当前模型')).toHaveValue(`personal:${id}:${model}`)
+  await page.getByLabel('描述你的问题').fill('画原点 A')
+  await page.getByRole('button', { name: '作图', exact: true }).click()
+  await expect(page.getByText('个人模型已完成作图。')).toBeVisible()
+  expect(await page.evaluate(() => window.lastCommand)).toBe('A=(0,0)')
+  expect(draws).toBe(2)
+})
+
+test('mobile custom providers can save a manual model when discovery is unavailable', async ({ page }) => {
+  await mockServices(page, true)
+  await page.setViewportSize({ width: 320, height: 850 })
+  await page.route('**/api/providers/discover', route => route.fulfill({ status: 422, json: { error: '该接口未提供模型列表' } }))
+  await page.route('**/api/providers', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: [] })
+    const { apiKey, ...provider } = route.request().postDataJSON()
+    expect(apiKey).toBe('fixture-custom-key')
+    expect(provider.models).toEqual([{ id: 'my-math-model', label: 'my-math-model' }])
+    return route.fulfill({ status: 201, json: { id: 'custommath00001', ...provider } })
+  })
+  await page.goto('/settings/models')
+  const main = page.getByRole('main')
+  await main.getByRole('button', { name: '添加供应商' }).click()
+  await main.getByLabel('供应商名称').fill('自定义数学接口')
+  await main.getByLabel('API 基础地址').fill('https://api.example.com/custom/v1')
+  await main.getByLabel('API Key', { exact: true }).fill('fixture-custom-key')
+  await main.getByRole('button', { name: '获取模型列表' }).click()
+  await expect(main.getByRole('alert')).toHaveText('该接口未提供模型列表')
+  await main.getByLabel('手动添加的模型 ID').fill('my-math-model')
+  await main.getByRole('button', { name: '添加模型' }).click()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+  await main.getByRole('button', { name: '保存供应商' }).click()
+  await expect(main.getByText('自定义数学接口', { exact: true })).toBeVisible()
 })
 
 test('security forms open individually and data actions remain available', async ({ page }) => {

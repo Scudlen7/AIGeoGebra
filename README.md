@@ -375,7 +375,7 @@ npm install
 
 # 2. 准备环境变量
 cp .env.example .env
-# 编辑 .env，填入 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
+# 编辑 .env，填写 PocketBase 连接配置与 MODEL_PROVIDER_ENCRYPTION_KEY
 
 # 3. 启动开发服务器
 npm run dev
@@ -383,7 +383,9 @@ npm run dev
 
 启动后访问 `http://localhost:5173`。开发服务器以 `host: true` 启动，同一局域网设备可通过本机 IP 访问。
 
-若头部显示“模型未配置”，请检查 `.env` 三个变量是否都已填写，然后重启 `npm run dev`。
+登录后，在「设置 → 模型偏好」中添加供应商。选用预设可自动填入 API 基础地址和协议，输入自己的 API Key 后点击「获取模型列表」。如果接口没有提供列表，可以手动添加模型 ID。保存供应商后，在「默认模型」中选择一个支持工具调用的模型，再进入作图工作区。
+
+个人供应商使用标准端口的公网 HTTPS 域名。填写 API 基础地址及供应商所需的路径，例如 `https://api.openai.com/v1`。访问本机、内网地址或需要重定向的接口会失败。原有环境变量里的平台密钥默认禁用。需要游客 AI 试用时，可用专用试用密钥并设置 `LLM_ENABLE_PLATFORM_MODELS=true`。
 
 ### 6.3 常用命令
 
@@ -396,16 +398,11 @@ npm run dev
 
 ### 6.4 开发环境代理说明
 
-浏览器端只发起同源请求，避免暴露密钥与跨域问题：
-
-- `GET /api/status`：由 `vite.config.ts` 中 `llm-status` 插件处理，返回 `.env` 的配置状态；
-- `/llm/*`：由 Vite proxy 转发到 `LLM_BASE_URL`，自动追加 `Authorization: Bearer <LLM_API_KEY>`，并设置 `cache-control: no-cache`、`x-accel-buffering: no` 以保证 SSE 流式响应不被缓冲。
-
-因此浏览器代码中只出现相对地址 `/llm` 和 `/api/*`，密钥始终留在服务端（开发时为本地 `.env`，生产时为平台环境变量）。浏览器登录后，用单独的 `X-PB-Token` 把头里的 PocketBase token 交给代理；代理再用超级用户身份向 PocketBase 校验，并换成上游模型密钥，避免和现有的 `Authorization` 注入互相覆盖。
+Vite 开发服务器在同源的 `/api/providers` 下提供个人供应商配置、模型发现和流式作图。设置时浏览器把 API Key 提交给应用服务器，服务器以 AES-256-GCM 加密后保存到 PocketBase。作图时浏览器发送会话内容、登录令牌及所选供应商和模型的 ID，服务端核对账号后连接上游。已启用的平台试用模型走 `/llm/chat/completions`。
 
 ### 6.5 PocketBase
 
-账号、云端会话和用量存在本机 PocketBase 0.40.4。数据目录在仓库外，邮件设置已经由超级用户配好，迁移不会创建超级用户，也不会改写邮件设置。
+账号、云端会话、用量和加密的个人供应商配置保存在 PocketBase 0.40.4。数据目录在仓库外，邮件设置已经由超级用户配好，迁移不会创建超级用户，也不会改写邮件设置。
 
 启动时要显式使用仓库里的迁移和钩子，而不是数据目录里自动生成的迁移：
 
@@ -419,13 +416,17 @@ pocketbase.exe serve --dir <用户的数据目录> --migrationsDir <仓库>/pb_m
 D:\pocketbase\pocketbase.exe serve --http=127.0.0.1:8090 --dir D:\pocketbase\pb_data --migrationsDir D:\Grade3Proj\AIGeoGebra\pb_migrations --hooksDir D:\Grade3Proj\AIGeoGebra\pb_hooks
 ```
 
-开发时 `PB_URL` 为 `http://127.0.0.1:8090`。边缘函数要能写入用量，`PB_URL` 必须是边缘函数访问得到的地址；`127.0.0.1` 只用于本地开发。
+开发时 `PB_URL` 为 `http://127.0.0.1:8090`。已有数据库按上述命令重启后会应用 `1792400002_model_providers.js`。将以下命令生成的 64 个十六进制字符填入应用环境的 `MODEL_PROVIDER_ENCRYPTION_KEY` 并妥善备份。重新生成会使已保存的个人 Key 无法读取。
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
 
 ---
 
 ## 7. 生产部署（腾讯 EdgeOne）
 
-项目面向 EdgeOne Pages 部署：静态资源由 EdgeOne 分发，两个服务端接口由 Edge Functions 承担。
+项目面向 EdgeOne Pages 部署。个人供应商接口由 `cloud-functions/` 下的 Node.js 云函数处理，平台试用走原有 Edge Functions。
 
 ### 7.1 构建
 
@@ -439,7 +440,7 @@ npm run build
 
 1. 将项目推送到 Git 仓库，并在 EdgeOne Pages 控制台导入该项目（或使用 EdgeOne CLI 部署）；
 2. 构建命令填写 `npm run build`，输出目录填写 `dist`；
-3. 在平台**环境变量**中配置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`（Edge Functions 通过 `context.env` 读取，与本地 `.env` 无关）；
+3. 应用 PocketBase 迁移，在平台环境变量中配置可由云函数访问的 HTTPS `PB_URL`、PocketBase 服务凭据和 `MODEL_PROVIDER_ENCRYPTION_KEY`。在能连接供应商 API 的区域启用 Node.js 云函数；
 4. 部署完成后访问站点域名。
 
 已生成的 `.edgeone/` 目录包含项目绑定信息（`project.json`）、边缘函数路由（`edge-functions/config.json`）与静态资源配置（`assets/.edgeone-assets-config.json`，`framework: "solid"`、`needsFallback: true` 用于 SPA 回退）。
@@ -448,11 +449,13 @@ npm run build
 
 | 变量 | 说明 |
 | --- | --- |
-| `LLM_BASE_URL` | OpenAI 兼容接口地址 |
+| `MODEL_PROVIDER_ENCRYPTION_KEY` | 个人 API Key 的加密密钥，由 64 个十六进制字符组成 |
+| `LLM_ENABLE_PLATFORM_MODELS` | 可选，设为 `true` 启用平台试用模型 |
+| `LLM_BASE_URL` | 平台试用的 OpenAI 兼容接口地址 |
 | `LLM_API_KEY` | 模型供应商密钥 |
 | `LLM_MODEL` | 模型名称 |
 
-配置完成后重新部署。若未配置，`/api/status` 会返回 `configured: false`，页面显示“模型未配置”。
+配置完成后重新部署。`/api/status` 只报告平台试用模型的启用状态。
 
 ### 7.4 Edge Functions 说明
 
@@ -468,7 +471,7 @@ npm run build
 ```
 
 - `functions/api/status.js`：`GET /api/status` 返回 `{ configured, model }`；
-- `functions/llm/[[path]].js`：把 `/llm/chat/completions` 转发为 `{LLM_BASE_URL}/chat/completions`，注入 `Authorization`，透传 SSE 流并追加 `cache-control: no-cache` 与 `x-accel-buffering: no`，确保逐字输出。
+- `functions/llm/[[path]].js`：把启用的平台试用请求转发到模型供应商，注入 `Authorization`，透传 SSE 流并追加 `cache-control: no-store` 与 `x-accel-buffering: no`。
 
 ---
 
@@ -478,13 +481,15 @@ npm run build
 
 | 变量 | 必填 | 说明 | 示例 |
 | --- | --- | --- | --- |
-| `LLM_BASE_URL` | 是 | OpenAI 兼容接口地址；供应商要求带 `/v1` 前缀时需包含 | `https://api.deepseek.com/v1` |
-| `LLM_API_KEY` | 是 | 模型供应商 API Key | `sk-...` |
-| `LLM_MODEL` | 是（未配置 `LLM_MODELS` 时） | 默认模型名称 | `deepseek-chat` / `deepseek-flash` |
+| `MODEL_PROVIDER_ENCRYPTION_KEY` | 个人供应商需要 | 32 个随机字节的十六进制字符串，保持稳定并备份 | |
+| `LLM_ENABLE_PLATFORM_MODELS` | 否 | 设为 `true` 后才启用以下平台试用配置 | `false` |
+| `LLM_BASE_URL` | 平台试用需要 | OpenAI 兼容接口地址，含供应商要求的路径 | `https://api.deepseek.com/v1` |
+| `LLM_API_KEY` | 平台试用需要 | 模型供应商 API Key | `sk-...` |
+| `LLM_MODEL` | 平台试用需要（未配置 `LLM_MODELS` 时） | 默认模型名称 | `deepseek-chat` / `deepseek-flash` |
 | `LLM_MODELS` | 否 | 模型列表 JSON。元素为 `id`、`label`、`baseUrl`、`apiKey`、`gateway`。留空时列表只有上面这一项，且 `gateway` 为 false | `[{"id":"deepseek-chat","label":"DeepSeek","baseUrl":"https://api.deepseek.com/v1","apiKey":"","gateway":false}]` |
 | `PB_URL` | 登录与用量需要 | PocketBase 地址。边缘函数必须填它访问得到的地址，本机开发用 `http://127.0.0.1:8090` | `http://127.0.0.1:8090` |
-| `PB_SUPERUSER_EMAIL` | 写用量需要 | `_superusers` 集合中的超级用户邮箱。只放在 `.env` 或 EdgeOne 环境变量 | |
-| `PB_SUPERUSER_PASSWORD` | 写用量需要 | 超级用户密码。不写进仓库 | |
+| `PB_SUPERUSER_EMAIL` | 个人供应商和用量需要 | `_superusers` 集合中的超级用户邮箱。只放在 `.env` 或 EdgeOne 环境变量 | |
+| `PB_SUPERUSER_PASSWORD` | 个人供应商和用量需要 | 超级用户密码。不写进仓库 | |
 | `AI_GATEWAY_API_KEY` | 否 | 可放进 `LLM_MODELS` 里 `gateway: true` 的项。页面不展示密钥 | `sk-...` |
 | `AI_GATEWAY_BASE_URL` | 否（预留） | EdgeOne AI Gateway 地址 | `https://ai-gateway.edgeone.link/v1` |
 | `AI_GATEWAY_MODEL` | 否 | 可写入 `LLM_MODELS` 的网关模型 id | `@makers/deepseek-v4-flash` |
@@ -627,7 +632,7 @@ GeoGebra 概率计算器（Classic 透视 `B`）的界面状态无法用普通�
 
 ### 10.1 GET /api/status
 
-返回 LLM 配置状态，用于页面显示模型信息。
+返回平台试用模型的启用状态。
 
 响应示例：
 
@@ -646,19 +651,22 @@ GeoGebra 概率计算器（Classic 透视 `B`）的界面状态无法用普通�
 
 ### 10.2 /llm/*
 
-OpenAI 兼容接口的同源转发代理。
+仅在启用平台试用时开放的 OpenAI 兼容代理。
 
 - 请求：`POST /llm/chat/completions`（透传 AI SDK 生成的请求体）；
 - 转发目标：`{LLM_BASE_URL}/chat/completions`；
 - 浏览器另附 `X-PB-Token`。代理先用超级用户向 PocketBase 校验；无效则仍转发，但不记用量；
-- 按模型列表选择上游地址和密钥，并写入 `Authorization: Bearer {apiKey}`。不在列表中的 id 使用默认模型；
+- 按模型列表选择上游地址和密钥，并写入 `Authorization: Bearer {apiKey}`。指定的模型 ID 必须在平台试用列表中；
 - 请求上游时带 `stream_options.include_usage`，边读边转发 SSE，再从最后的 usage 块记录 token；
-- 响应强制 `cache-control: no-cache` 与 `x-accel-buffering: no`；
-- 未配置或上游异常时返回 JSON 错误（500/502）。记用量失败不影响这次响应。
+- 响应强制 `cache-control: no-store` 与 `x-accel-buffering: no`；
+- 平台试用未启用时返回 503，指定的模型不存在时返回 404，上游连接异常时返回 502。记用量失败不影响这次响应。
 
 ### 10.3 模型与 PocketBase
 
-- `GET /api/models` 只返回 `id`、`label`、`gateway`；
+- `GET /api/models` 只返回已启用的平台试用模型的 `id`、`label` 和 `gateway`；
+- `GET/POST /api/providers` 读取或添加当前账号的供应商。编辑和删除走 `/api/providers/:id`，返回值只包含供应商和模型信息；
+- `POST /api/providers/discover` 使用指定 API 基础地址请求模型列表。`/api/providers/:id/test` 发送一次短请求验证选中的模型；
+- 个人作图请求走 `/api/providers/:id/chat/completions` 或 `/api/providers/:id/messages`，对应 OpenAI 兼容和 Anthropic 协议。只允许调用该账号为此供应商保存的模型 ID；
 - `POST /api/models/test` 由服务端对指定 id 发一次最小请求，返回是否连通和延迟；
 - `GET /api/gateway` 只在需要展示网关卡片时提供端点和模型 id，不含密钥；
 - `GET /api/config` 返回 `pbUrl`；
@@ -722,7 +730,7 @@ OpenAI 兼容接口的同源转发代理。
 
 ### Q1：页面显示“模型未配置”怎么办？
 
-复制 `.env.example` 为 `.env`，填写 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 三个变量，然后重新运行 `npm run dev`。生产环境请在 EdgeOne 控制台配置同名环境变量并重新部署。
+登录后到「模型偏好」添加个人供应商、选择默认模型。如果页面提示供应商服务未配置，请检查 PocketBase 连接和 `MODEL_PROVIDER_ENCRYPTION_KEY`。
 
 ### Q2：画板一直显示“正在加载画板…”，最后提示超时？
 
@@ -750,7 +758,7 @@ GeoGebra 的概率计算器界面在 Classic 应用的透视 `B` 中提供，本
 
 ### Q8：可以换成其他 OpenAI 兼容模型吗？
 
-可以。只要服务商提供 OpenAI 兼容的 `chat/completions` 接口，修改 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 即可；注意 `LLM_BASE_URL` 是否需要带 `/v1` 前缀按供应商要求填写。
+可以。在「模型偏好」选择预设或添加自定义配置。供应商须提供 OpenAI 兼容的 Chat Completions 或 Anthropic Messages 接口，且用于作图的模型须支持工具调用。
 
 ### Q9：为什么浏览器网络请求里看不到 API Key？
 
