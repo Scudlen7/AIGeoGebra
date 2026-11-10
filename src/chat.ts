@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { executeCommands, listObjects } from './board'
 import { authToken } from './pb'
 import { systemPrompt } from './prompt'
+import type { PersonalConnection } from './providers'
 import type { AngleUnit, CalculatorMode, ChatTurn, CommandResult, ConstructionReport, LlmStatus } from './types'
 
 export async function fetchLlmStatus(): Promise<LlmStatus> {
@@ -36,33 +37,39 @@ export async function runTurn(options: {
   mode: CalculatorMode
   angleUnit?: AngleUnit
   model: string
+  connection?: PersonalConnection
   messages: ChatTurn[]
   onText: (text: string) => void
   onReport: (report: ConstructionReport) => void
   signal: AbortSignal
 }) {
-  const provider = createOpenAICompatible({
-    name: 'llm',
-    baseURL: `${window.location.origin}/llm`,
-    apiKey: 'proxy',
-    includeUsage: false,
-    transformRequestBody: (body) => {
-      // deepseek-flash 默认开启思考模式，该模式拒绝指定具体工具。
-      // 作图必须调用 applyCommands，因此对这类模型关闭思考。
-      if (/deepseek-(flash|reasoner|v\d)/i.test(options.model)) {
-        return { ...body, thinking: { type: 'disabled' } }
-      }
-      return body
-    },
-  })
+  const token = authToken()
+  const modelId = options.connection?.modelId || options.model
+  const path = options.connection ? '/api/providers/' + encodeURIComponent(options.connection.providerId) : '/llm'
+  const baseURL = window.location.origin + path
+  const isClaude = options.connection?.protocol === 'anthropic'
+  const model = isClaude
+    ? (await import('@ai-sdk/anthropic')).createAnthropic({ apiKey: 'proxy', baseURL }).chat(modelId)
+    : createOpenAICompatible({
+        name: 'llm',
+        baseURL,
+        apiKey: 'proxy',
+        includeUsage: false,
+        transformRequestBody: (body) => {
+          // DeepSeek thinking mode rejects the forced tool call required for drawing.
+          return /deepseek-(flash|reasoner|v\d)/i.test(modelId) ? { ...body, thinking: { type: 'disabled' } } : body
+        },
+      }).chatModel(modelId)
+  options.signal.throwIfAborted()
 
   let text = ''
   const result = streamText({
-    model: provider.chatModel(options.model),
+    model,
+    providerOptions: isClaude ? { anthropic: { thinking: { type: 'disabled' } } } : undefined,
     system: systemPrompt(options.mode, listObjects(), options.angleUnit ?? 'degree'),
     messages: options.messages,
     abortSignal: options.signal,
-    headers: authToken() ? { 'X-PB-Token': authToken() } : undefined,
+    headers: token ? { 'X-PB-Token': token } : undefined,
     maxRetries: 1,
     stopWhen: stepCountIs(3),
     prepareStep: ({ stepNumber, steps }) => {

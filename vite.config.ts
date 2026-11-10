@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import solid from 'vite-plugin-solid'
 import { configResponse, gatewayResponse, modelsResponse, proxyLlm, statusResponse, testModel } from './functions/_lib/llm.js'
+import { providersRequest } from './server/model-providers.js'
 
 function readBody(req: IncomingMessage) {
   return new Promise<Buffer>((resolve, reject) => {
@@ -40,7 +41,8 @@ function serverApi(env: Record<string, string>): Plugin {
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url || '/', 'http://127.0.0.1')
         const path = url.pathname
-        const handled =
+        const providerRoute = path === '/api/providers' || path.startsWith('/api/providers/')
+        const handled = providerRoute ||
           path === '/api/status' ||
           path === '/api/config' ||
           path === '/api/models' ||
@@ -70,7 +72,8 @@ function serverApi(env: Record<string, string>): Plugin {
             signal: controller.signal,
           })
           let response: Response
-          if (path === '/api/status') response = statusResponse(env)
+          if (providerRoute) response = await providersRequest(request, env)
+          else if (path === '/api/status') response = statusResponse(env)
           else if (path === '/api/config') response = configResponse(env)
           else if (path === '/api/models' && method === 'GET') response = modelsResponse(env)
           else if (path === '/api/gateway') response = gatewayResponse(env)

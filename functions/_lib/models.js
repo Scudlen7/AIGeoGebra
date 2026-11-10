@@ -1,4 +1,5 @@
 export function parseModels(env) {
+  if (env.LLM_ENABLE_PLATFORM_MODELS !== 'true') return []
   const raw = String(env.LLM_MODELS || '').trim()
   if (raw) {
     try {
@@ -46,7 +47,7 @@ export function gatewayModels(env) {
 export function resolveModel(env, requested) {
   const models = parseModels(env)
   if (!models.length) return null
-  return models.find((item) => item.id === requested) || models[0]
+  return requested ? models.find((item) => item.id === requested) : models[0]
 }
 
 export function statusBody(env) {

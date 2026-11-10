@@ -1,10 +1,12 @@
 import { authUser, pb } from './pb'
+import type { PersonalConnection } from './providers'
 import type { CalculatorMode, ChatTurn, ConstructionReport } from './types'
 
 export type PublicModel = {
   id: string
   label: string
   gateway: boolean
+  connection?: PersonalConnection
 }
 
 export type GatewayModel = {

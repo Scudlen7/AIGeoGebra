@@ -10,7 +10,7 @@ export function envOf(context) {
 export function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-cache' },
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   })
 }
 
@@ -78,12 +78,18 @@ function readUsage(line, jsonResponse = false) {
   if (!payload || payload === '[DONE]') return null
   try {
     const jsonBody = JSON.parse(payload)
-    const usage = jsonBody.usage
-    if (!usage || (usage.prompt_tokens == null && usage.completion_tokens == null)) return null
-    return {
-      prompt: Number(usage.prompt_tokens) || 0,
-      completion: Number(usage.completion_tokens) || 0,
+    const usage = jsonBody.usage ?? jsonBody.message?.usage
+    if (!usage) return null
+    const found = {}
+    if (usage.prompt_tokens != null) found.prompt = Number(usage.prompt_tokens) || 0
+    else if (usage.input_tokens != null) {
+      found.prompt = (Number(usage.input_tokens) || 0)
+        + (Number(usage.cache_read_input_tokens) || 0)
+        + (Number(usage.cache_creation_input_tokens) || 0)
     }
+    const output = usage.completion_tokens ?? usage.output_tokens
+    if (output != null) found.completion = Number(output) || 0
+    return Object.keys(found).length ? found : null
   } catch {
     return null
   }
@@ -104,61 +110,51 @@ function prepareBody(raw, modelId) {
 
 export async function proxyLlm(request, env) {
   const url = new URL(request.url)
-  const rawBody = request.method === 'GET' || request.method === 'HEAD' ? '' : await request.text()
+  if (request.method !== 'POST' || url.pathname !== '/llm/chat/completions' || url.search) {
+    return json({ error: '模型接口不存在' }, 404)
+  }
+  if (env.LLM_ENABLE_PLATFORM_MODELS !== 'true') return json({ error: '平台试用模型未启用' }, 503)
+  const rawBody = await request.text()
   let requested = ''
   try {
     requested = String(JSON.parse(rawBody || '{}').model || '')
   } catch {
-    requested = ''
+    return json({ error: '请求格式不正确' }, 400)
   }
   const model = resolveModel(env, requested)
-  if (!model) return json({ error: '模型未配置' }, 500)
-
-  let upstream
-  try {
-    upstream = new URL(model.baseUrl)
-  } catch {
-    return json({ error: '模型地址不是合法的 URL' }, 500)
-  }
-  const rest = url.pathname.replace(/^\/llm\/?/, '')
-  const target = `${upstream.origin}${upstream.pathname.replace(/\/+$/, '')}/${rest}${url.search}`
-  const headers = new Headers()
-  request.headers.forEach((value, key) => {
-    const name = key.toLowerCase()
-    if (name === 'host' || name === 'content-length' || name === 'authorization' || name === 'x-pb-token') return
-    headers.set(key, value)
+  if (!model) return json({ error: '平台模型未配置或不存在' }, requested ? 404 : 503)
+  const headers = new Headers({
+    'content-type': 'application/json',
+    authorization: `Bearer ${model.apiKey}`,
   })
-  headers.set('authorization', `Bearer ${model.apiKey}`)
-  const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : prepareBody(rawBody, model.id)
-  if (body != null) headers.set('content-type', 'application/json')
-
   const user = await verifyUser(env, request.headers.get('x-pb-token'))
-  const track = Boolean(user) && request.method === 'POST' && rest.includes('chat/completions')
-
-  let upstreamResponse
+  let response
   try {
-    upstreamResponse = await fetch(target, {
-      method: request.method,
+    response = await fetch(`${model.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
       headers,
-      body,
+      body: prepareBody(rawBody, model.id),
       signal: request.signal,
+      redirect: 'error',
     })
   } catch (reason) {
     return json({ error: 'LLM 请求失败', detail: scrub(reason instanceof Error ? reason.message : String(reason)) }, 502)
   }
+  return forwardModelResponse(response, env, user && { owner: user.id, model: model.id, gateway: model.gateway })
+}
 
+export async function forwardModelResponse(upstreamResponse, env, event) {
+  const track = Boolean(event) && upstreamResponse.ok
   const responseHeaders = new Headers(upstreamResponse.headers)
-  responseHeaders.set('cache-control', 'no-cache')
+  responseHeaders.set('cache-control', 'no-store')
   responseHeaders.set('x-accel-buffering', 'no')
   responseHeaders.delete('content-length')
   responseHeaders.delete('content-encoding')
 
   if (!upstreamResponse.body) {
-    if (track && upstreamResponse.ok) {
+    if (track) {
       await recordUsage(env, {
-        owner: user.id,
-        model: model.id,
-        gateway: model.gateway,
+        ...event,
         tokensKnown: false,
         promptTokens: 0,
         completionTokens: 0,
@@ -180,14 +176,12 @@ export async function proxyLlm(request, env) {
           pending += decoder.decode()
           if (pending) {
             const found = readUsage(pending, jsonResponse)
-            if (found) usage = found
+            if (found) usage = { ...usage, ...found }
           }
           controller.close()
-          if (track && upstreamResponse.ok) {
+          if (track) {
             await recordUsage(env, {
-              owner: user.id,
-              model: model.id,
-              gateway: model.gateway,
+              ...event,
               tokensKnown: Boolean(usage),
               promptTokens: usage?.prompt || 0,
               completionTokens: usage?.completion || 0,
@@ -201,7 +195,7 @@ export async function proxyLlm(request, env) {
           pending = lines.pop() || ''
           for (const line of lines) {
             const found = readUsage(line)
-            if (found) usage = found
+            if (found) usage = { ...usage, ...found }
           }
         }
         controller.enqueue(value)

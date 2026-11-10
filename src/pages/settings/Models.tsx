@@ -1,41 +1,49 @@
-import { For, Show, createSignal, onMount } from 'solid-js'
+import { For, Show, createMemo, createSignal, onMount } from 'solid-js'
 import { fetchGateway, fetchModels, fetchSummary, readableError, testModel, type GatewayModel, type PublicModel, type UsageSummary } from '../../api'
 import { authUser, pb } from '../../pb'
+import { fetchProviders, personalModels, preferredModel, removeProvider, testPersonalModel, type ModelProvider } from '../../providers'
+import { ProviderForm } from './ProviderForm'
 
-type ConnectionTest = { state: 'pending' | 'ok' | 'error'; message: string }
+type ConnectionTest = { id: string; pending: boolean; ok?: boolean; message: string }
 
 function displayName(model: PublicModel) {
   return model.gateway ? model.label.replace(/\s*(?:（网关）|\(网关\)|·\s*网关)\s*$/, '').trim() || model.label : model.label
 }
 
 export function ModelSettings() {
-  const [models, setModels] = createSignal<PublicModel[]>([])
+  const [providers, setProviders] = createSignal<ModelProvider[]>([])
+  const [platformModels, setPlatformModels] = createSignal<PublicModel[]>([])
   const [gateways, setGateways] = createSignal<GatewayModel[]>([])
   const [usage, setUsage] = createSignal<UsageSummary | null>(null)
+  const [editing, setEditing] = createSignal<{ provider?: ModelProvider }>()
   const [loading, setLoading] = createSignal(true)
   const [saving, setSaving] = createSignal('')
+  const [removing, setRemoving] = createSignal('')
   const [notice, setNotice] = createSignal('')
   const [error, setError] = createSignal('')
-  const [checks, setChecks] = createSignal<Record<string, ConnectionTest>>({})
+  const [providerError, setProviderError] = createSignal('')
+  const [check, setCheck] = createSignal<ConnectionTest>()
 
-  onMount(() => {
-    fetchModels().then((list) => {
-      setModels(list)
-      if (list.some((item) => item.gateway)) {
+  onMount(async () => {
+    const [personal, platform] = await Promise.allSettled([fetchProviders(), fetchModels()])
+    if (personal.status === 'fulfilled') setProviders(personal.value)
+    else setProviderError(readableError(personal.reason, '供应商列表加载失败'))
+    if (platform.status === 'fulfilled') {
+      setPlatformModels(platform.value)
+      if (platform.value.some((item) => item.gateway)) {
         void fetchGateway().then(setGateways).catch(() => setGateways([]))
         void fetchSummary().then(setUsage).catch(() => setUsage(null))
       }
-    }).catch((reason) => setError(readableError(reason, '模型列表加载失败'))).finally(() => setLoading(false))
+    }
+    setLoading(false)
   })
 
-  const selectedModel = () => {
-    const chosen = String(authUser()?.model || '')
-    return models().some((item) => item.id === chosen) ? chosen : models()[0]?.id || ''
-  }
+  const models = createMemo(() => [...personalModels(providers()), ...platformModels()])
+  const selected = () => preferredModel(models(), authUser()?.model)
 
   async function chooseModel(id: string) {
     const user = authUser()
-    if (!user || saving() || id === selectedModel()) return
+    if (!user || saving() || !models().some((model) => model.id === id)) return
     const token = pb.authStore.token
     setSaving(id)
     setError('')
@@ -52,80 +60,127 @@ export function ModelSettings() {
     }
   }
 
-  function reportTest(id: string, result: ConnectionTest) {
-    setChecks((current) => ({ ...current, [id]: result }))
+  async function checkConnection(model: PublicModel) {
+    if (check()?.pending) return
+    setCheck({ id: model.id, pending: true, message: '正在测试连接' })
+    try {
+      const result = model.connection ? await testPersonalModel(model.connection) : await testModel(model.id)
+      setCheck({ id: model.id, pending: false, ok: result.ok, message: result.ok ? `已连通，${result.latencyMs} ms` : result.error || '连接失败' })
+    } catch (reason) {
+      setCheck({ id: model.id, pending: false, ok: false, message: readableError(reason, '连接失败') })
+    }
   }
 
-  async function checkConnection(id: string) {
-    reportTest(id, { state: 'pending', message: '正在测试连接' })
+  function saved(provider: ModelProvider) {
+    setProviders((items) => items.some((item) => item.id === provider.id)
+      ? items.map((item) => item.id === provider.id ? provider : item)
+      : [...items, provider])
+    setEditing(undefined)
+    setCheck(undefined)
+    setError('')
+    setProviderError('')
+    setNotice('供应商已保存，可在默认模型中选择。')
+  }
+
+  async function remove(provider: ModelProvider) {
+    if (removing() || !window.confirm(`移除「${provider.name}」和已保存的 API Key？`)) return
+    setError('')
+    setNotice('')
+    setRemoving(provider.id)
     try {
-      const result = await testModel(id)
-      reportTest(id, result.ok
-        ? { state: 'ok', message: `已连通，${result.latencyMs} ms` }
-        : { state: 'error', message: result.error || '连接失败' })
+      await removeProvider(provider.id)
+      setProviders((items) => items.filter((item) => item.id !== provider.id))
+      setCheck(undefined)
+      setNotice('供应商已移除')
     } catch (reason) {
-      reportTest(id, { state: 'error', message: readableError(reason, '连接失败') })
+      setError(readableError(reason, '供应商移除失败'))
+    } finally {
+      setRemoving('')
     }
   }
 
   const monthStat = (id: string) => usage()?.gatewayMonth?.models.find((item) => item.model === id)
 
   return (
-    <section aria-labelledby="model-settings-title">
-      <header class="settings-section-head">
-        <h2 id="model-settings-title">模型偏好</h2>
-        <p>选择数学助手默认使用的模型，查看各模型的连接状态。</p>
-      </header>
-      <Show when={error()}><p class="banner" role="alert">{error()}</p></Show>
-      <Show when={!loading()} fallback={<p class="settings-feedback" role="status">正在读取可用模型…</p>}>
-        <Show when={models().length} fallback={<p class="settings-feedback">当前没有可用的模型配置。</p>}>
+    <Show when={editing()} keyed fallback={
+      <section aria-labelledby="model-settings-title">
+        <header class="settings-section-head provider-heading">
+          <div>
+            <h2 id="model-settings-title">模型偏好</h2>
+            <p>连接你的模型供应商，选择数学助手作图时使用的默认模型。</p>
+          </div>
+          <button class="btn" type="button" disabled={loading() || Boolean(removing())} onClick={() => setEditing({})}>
+            <span aria-hidden="true">＋</span>添加供应商
+          </button>
+        </header>
+        <Show when={error()}><p class="banner" role="alert">{error()}</p></Show>
+        <Show when={notice()}><p class="settings-feedback" role="status">{notice()}</p></Show>
+        <Show when={!loading()} fallback={<p class="settings-feedback" role="status">正在读取可用模型…</p>}>
           <div class="settings-row settings-default-model">
             <div>
               <label class="settings-row-title" for="settings-default-model">默认模型</label>
-              <p id="settings-model-hint">新请求会使用这个模型。</p>
+              <p id="settings-model-hint">新请求使用此模型。测试连接会发送一次简短请求。</p>
             </div>
-            <select id="settings-default-model" aria-describedby="settings-model-hint" value={saving() || selectedModel()}
-              disabled={Boolean(saving())} onChange={(event) => void chooseModel(event.currentTarget.value)}>
-              <For each={models()}>{(item) => <option value={item.id}>{displayName(item)}{item.gateway ? ' · 网关' : ''}</option>}</For>
-            </select>
+            <div class="provider-default-controls">
+              <select id="settings-default-model" aria-describedby="settings-model-hint" value={saving() || selected()?.id || ''}
+                disabled={!models().length || Boolean(saving()) || Boolean(removing())}
+                onChange={(event) => void chooseModel(event.currentTarget.value)}>
+                <option value="" disabled>{models().length ? '请选择默认模型' : '请先添加供应商'}</option>
+                <For each={models()}>{(item) => <option value={item.id}>{displayName(item)}{item.connection ? '' : item.gateway ? ' · 网关' : ' · 平台试用'}</option>}</For>
+              </select>
+              <Show when={selected()}>
+                {(model) => <button class="btn ghost" type="button" aria-label={`测试连接 ${displayName(model())}`}
+                  disabled={check()?.pending || Boolean(removing())} onClick={() => void checkConnection(model())}>
+                  {check()?.pending ? '测试中…' : '测试连接'}
+                </button>}
+              </Show>
+            </div>
+            <Show when={check()?.id === selected()?.id && check()}>
+              {(result) => <p class="settings-test-result provider-test-result" classList={{ failed: result().ok === false }} role="status">{result().message}</p>}
+            </Show>
           </div>
-          <Show when={notice()}><p class="settings-feedback" role="status">{notice()}</p></Show>
+
           <div class="settings-group">
-            <h3>可用模型</h3>
-            <ul class="settings-list">
-              <For each={models()}>{(model) => (
-                <li class="settings-row">
-                  <div class="settings-model">
-                    <div><span class="settings-row-title">{displayName(model)}</span>
-                      <Show when={model.gateway}><span class="settings-badge">网关</span></Show>
+            <h3>个人供应商</h3>
+            <Show when={providerError()}><p class="settings-feedback" role="alert">{providerError()}</p></Show>
+            <Show when={providers().length} fallback={<p class="provider-empty">添加一个供应商，获取它的模型列表。</p>}>
+              <ul class="settings-list">
+                <For each={providers()}>{(provider) => (
+                  <li class="settings-row provider-row">
+                    <div class="provider-summary">
+                      <span class="settings-row-title">{provider.name}</span>
+                      <span class="settings-badge">{provider.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容'}</span>
+                      <p>{provider.baseUrl}</p>
+                      <p>{provider.models.length} 个模型 · 已保存 API Key</p>
                     </div>
-                    <Show when={checks()[model.id]}>
-                      {(check) => <p class="settings-test-result" classList={{ failed: check().state === 'error' }} role="status">{check().message}</p>}
-                    </Show>
-                  </div>
-                  <button class="btn ghost" type="button" aria-label={`测试连接 ${displayName(model)}`}
-                    disabled={checks()[model.id]?.state === 'pending'} onClick={() => void checkConnection(model.id)}>
-                    {checks()[model.id]?.state === 'pending' ? '测试中…' : '测试连接'}
-                  </button>
-                </li>
-              )}</For>
-            </ul>
+                    <div class="provider-actions">
+                      <button class="btn ghost" type="button" disabled={Boolean(removing())} aria-label={`编辑 ${provider.name}`}
+                        onClick={() => setEditing({ provider })}>编辑</button>
+                      <button class="btn ghost" type="button" disabled={Boolean(removing())} aria-label={`移除 ${provider.name}`}
+                        onClick={() => void remove(provider)}>{removing() === provider.id ? '移除中…' : '移除'}</button>
+                    </div>
+                  </li>
+                )}</For>
+              </ul>
+            </Show>
           </div>
         </Show>
-      </Show>
-      <Show when={gateways().length}>
-        <details class="settings-gateway">
-          <summary>网关详情 <span>EdgeOne AI Gateway</span></summary>
-          <For each={gateways()}>{(item) => (
-            <dl class="settings-gateway-values">
-              <div><dt>端点</dt><dd><code>{item.endpoint}</code></dd></div>
-              <div><dt>模型 ID</dt><dd><code>{item.id}</code></dd></div>
-              <div><dt>本月请求</dt><dd>{monthStat(item.id)?.requests ?? (usage() ? 0 : '—')}</dd></div>
-              <div><dt>本月 Token</dt><dd>{monthStat(item.id)?.tokens ?? (usage() ? 0 : '—')}</dd></div>
-            </dl>
-          )}</For>
-        </details>
-      </Show>
-    </section>
+        <Show when={gateways().length}>
+          <details class="settings-gateway">
+            <summary>网关详情 <span>EdgeOne AI Gateway</span></summary>
+            <For each={gateways()}>{(item) => (
+              <dl class="settings-gateway-values">
+                <div><dt>端点</dt><dd><code>{item.endpoint}</code></dd></div>
+                <div><dt>模型 ID</dt><dd><code>{item.id}</code></dd></div>
+                <div><dt>本月请求</dt><dd>{monthStat(item.id)?.requests ?? (usage() ? 0 : '—')}</dd></div>
+                <div><dt>本月 Token</dt><dd>{monthStat(item.id)?.tokens ?? (usage() ? 0 : '—')}</dd></div>
+              </dl>
+            )}</For>
+          </details>
+        </Show>
+      </section>
+    }>
+      {(entry) => <ProviderForm provider={entry.provider} onCancel={() => setEditing(undefined)} onSaved={saved} />}
+    </Show>
   )
 }

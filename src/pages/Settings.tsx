@@ -4,7 +4,7 @@ import { AccountBar } from '../AccountBar'
 import { Icon } from '../Icon'
 
 const categories = [
-  { href: '/settings/models', label: '模型偏好', description: '选择默认模型并测试连接' },
+  { href: '/settings/models', label: '模型偏好', description: '管理供应商并选择默认模型' },
   { href: '/settings/security', label: '账户安全', description: '管理昵称、邮箱和密码' },
   { href: '/settings/data', label: '数据管理', description: '导出会话、清理缓存或删除账号' },
 ]
