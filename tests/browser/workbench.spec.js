@@ -259,6 +259,46 @@ async function openGeometrySession(page) {
   await expect.poll(() => page.evaluate(() => window.boardXml)).toBe(xml('A'))
 }
 
+test('conversation displays saved user and assistant messages after reload and session switching', async ({ page }) => {
+  const state = await mockServices(page)
+  state.records[0].messages.push({ role: 'assistant', content: '已完成平行四边形，**对边平行**。' })
+  await openGeometrySession(page)
+  const transcript = page.locator('.transcript')
+  const checkMessages = async () => {
+    await expect(transcript.locator('article.user')).toHaveText('几何甲的问题')
+    await expect(transcript.locator('article.assistant')).toContainText('已完成平行四边形')
+    for (const role of ['user', 'assistant']) {
+      await expect(transcript.locator(`article.${role}`)).toBeVisible()
+      await expect(transcript.locator(`article.${role}`)).toHaveCSS('opacity', '1')
+    }
+  }
+  await checkMessages()
+  await page.reload()
+  await checkMessages()
+  const sessions = page.getByRole('region', { name: '侧栏会话' })
+  await sessions.getByRole('link', { name: '几何乙' }).click()
+  await expect(transcript.locator('article.user')).toHaveText('几何乙的问题')
+  await expect(transcript.locator('article.assistant')).toHaveCount(0)
+  await sessions.getByRole('link', { name: '几何甲' }).click()
+  await checkMessages()
+})
+
+test('conversation remains readable when animation frames are paused', async ({ page }) => {
+  await page.addInitScript(() => {
+    // Background/embedded browsers may suspend animation frames while data keeps loading.
+    window.requestAnimationFrame = () => 0
+    window.cancelAnimationFrame = () => {}
+  })
+  const state = await mockServices(page)
+  state.records[0].messages.push({ role: 'assistant', content: '平行四边形已完成。' })
+  await openGeometrySession(page)
+  for (const role of ['user', 'assistant']) {
+    const message = page.locator(`.transcript article.${role}`)
+    await expect(message).toBeVisible()
+    await expect(message).toHaveCSS('opacity', '1')
+  }
+})
+
 test('collapsing the sidebar widens the conversation and preserves the board and draft', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await mockServices(page)

@@ -5,7 +5,6 @@ import { createResizeObserver } from '@solid-primitives/resize-observer'
 import { throttle } from '@solid-primitives/scheduled'
 import { makePersisted } from '@solid-primitives/storage'
 import { For, Show, createSignal, onCleanup, onMount, type Signal } from 'solid-js'
-import { TransitionGroup } from 'solid-transition-group'
 import { AccountBar } from './AccountBar'
 import { Icon } from './Icon'
 import { ModelPicker } from './ModelPicker'
@@ -629,17 +628,15 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
                   <Show when={messagesFor(id).length === 0 && !draft()}>
                     <div class="welcome"><Icon name="function" /><h2>今天，想探索什么？</h2><p class="lede">{modeDefinition(id).empty}</p><div class="examples"><button disabled={running() || !boardReady() || !canUseModel()} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div></div>
                   </Show>
-                  <TransitionGroup name="msg">
-                    <For each={messagesFor(id)}>
-                      {(message) => (
-                        <article class={message.role}>
-                          <Show when={message.role === 'assistant'} fallback={<p>{message.content}</p>}>
-                            <div class="assistant-label"><Icon name="function" />数学助手</div><div class="md" innerHTML={renderMarkdown(message.content)} />
-                          </Show>
-                        </article>
-                      )}
-                    </For>
-                  </TransitionGroup>
+                  <For each={messagesFor(id)}>
+                    {(message) => (
+                      <article class={message.role}>
+                        <Show when={message.role === 'assistant'} fallback={<p>{message.content}</p>}>
+                          <div class="assistant-label"><Icon name="function" />数学助手</div><div class="md" innerHTML={renderMarkdown(message.content)} />
+                        </Show>
+                      </article>
+                    )}
+                  </For>
                 </>
               )}
             </Show>
