@@ -7,6 +7,8 @@ export type PublicModel = {
   label: string
   gateway: boolean
   connection?: PersonalConnection
+  providerName?: string
+  modelLabel?: string
 }
 
 export type GatewayModel = {

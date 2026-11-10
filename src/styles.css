@@ -494,17 +494,105 @@ em {
   overflow-wrap:anywhere
 }
 .model-switch {
+  position:relative;
   display:flex;
   flex-direction:column;
   gap:var(--s1);
   font-size:12px;
   color:var(--muted)
 }
-.model-switch select {
-  max-width:100%;
+.model-switch-trigger {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--s2);
   width:100%;
+  min-height:36px;
+  padding:6px 10px;
+  border:1px solid var(--border);
+  border-radius:var(--r1);
+  background:var(--panel);
+  color:var(--text);
+  text-align:left
+}
+.model-switch-trigger>span:first-child,.model-picker-option span,.model-picker-option small {
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+.model-switch-trigger .icon {
+  width:14px;
+  height:14px;
+  flex:none;
+  color:var(--muted)
+}
+.model-switch-trigger:hover:not([aria-disabled=true]),.model-switch-trigger[aria-expanded=true] {
+  border-color:var(--accent)
+}
+.model-switch-trigger[aria-disabled=true] {
+  cursor:not-allowed;
+  opacity:.65
+}
+.model-picker-panel {
+  position:absolute;
+  z-index:10;
+  top:calc(100% + var(--s2));
+  right:0;
+  width:min(360px,calc(100vw - var(--s8)));
+  padding:var(--s2);
+  border:1px solid var(--border);
+  border-radius:var(--r2);
+  background:var(--panel);
+  color:var(--text);
+  box-shadow:0 8px 24px rgba(0,0,0,.13)
+}
+.model-picker-panel input {
+  width:100%;
+  min-height:38px;
+  border-color:var(--border);
+  font-size:14px
+}
+.model-picker-list {
+  max-height:min(320px,42dvh);
+  overflow:auto;
+  overscroll-behavior:contain
+}
+.model-picker-group {
+  padding-top:var(--s2)
+}
+.model-picker-group p,.model-picker-empty {
+  padding:var(--s1) var(--s2);
+  color:var(--muted)
+}
+.model-picker-group p {
+  font-weight:600
+}
+.model-picker-option {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:var(--s2);
+  min-height:40px;
+  padding:6px var(--s2);
+  border-radius:var(--r1);
+  font-size:14px;
+  cursor:pointer
+}
+.model-picker-option[data-active=true] {
+  background:var(--soft)
+}
+.model-picker-option small {
   font-size:12px;
-  min-height:36px
+  color:var(--muted)
+}
+.model-picker-check {
+  color:var(--accent);
+  font-weight:600
+}
+.model-picker-empty {
+  padding-block:var(--s3);
+  text-align:center
 }
 .modes {
   grid-column:2;
@@ -1882,8 +1970,8 @@ label {
     grid-column:2;
     grid-row:1
   }
-  .model-switch {
-    font-size:12px
+  .model-picker-panel input {
+    font-size:16px
   }
   .session-name,.sync-note {
     font-size:12px

@@ -8,6 +8,7 @@ import { For, Show, createSignal, onCleanup, onMount, type Signal } from 'solid-
 import { TransitionGroup } from 'solid-transition-group'
 import { AccountBar } from './AccountBar'
 import { Icon } from './Icon'
+import { ModelPicker } from './ModelPicker'
 import { blankCloud, fetchModels, loadCloudSession, readableError, saveCloudSession, latestCloudSession, type CloudSession, type PublicModel } from './api'
 import { captureBoard, getApi, listObjects, mountBoard, onBoardChange, resetBoard, resizeBoard, restoreBoard, restoreCommands, setCoordinateSystem, unmountBoard } from './board'
 import { hasFailure, runTurn } from './chat'
@@ -36,6 +37,7 @@ function emptyCloudMap(): Record<CalculatorMode, CloudSession> {
 export function App(props: { sessionId?: string; onModeChange?: (mode: CalculatorMode) => void }) {
   migrateLegacyStorage()
   const [loadingModels, setLoadingModels] = createSignal(true)
+  const [savingModel, setSavingModel] = createSignal(false)
   const [models, setModels] = createSignal<PublicModel[]>([])
   const [boardReady, setBoardReady] = createSignal(false)
   const [boardError, setBoardError] = createSignal('')
@@ -94,6 +96,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
   const shownName = () => cloudSlots()[activeMode()]?.name || '未命名会话'
 
   const requestModel = () => preferredModel(models(), authUser()?.model)
+  const canUseModel = () => Boolean(requestModel()) && !savingModel()
 
   const renderDraft = throttle((text: string) => setDraft(text), 80)
   const resizeThrottled = throttle((width: number, height: number) => resizeBoard(width, height), 120)
@@ -354,6 +357,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
     const generation = ++modelGeneration
     const owner = ownerId()
     setLoadingModels(true)
+    setSavingModel(false)
     setModels([])
     const [platform, personal] = await Promise.allSettled([fetchModels(), owner ? fetchProviders() : Promise.resolve([])])
     if (generation !== modelGeneration || owner !== ownerId()) return
@@ -366,13 +370,19 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
 
   async function chooseModel(modelId: string) {
     const user = authUser()
-    if (!user) return
+    if (!user || running() || savingModel() || requestModel()?.id === modelId || !models().some((item) => item.id === modelId)) return
     const token = pb.authStore.token
+    const generation = modelGeneration
+    const isCurrent = () => generation === modelGeneration && ownerId() === user.id && pb.authStore.token === token
+    setSavingModel(true)
+    setError('')
     try {
       const updated = await pb.collection('users').update(user.id, { model: modelId })
-      if (ownerId() === user.id && pb.authStore.token === token) pb.authStore.save(token, updated)
+      if (isCurrent()) pb.authStore.save(token, updated)
     } catch (reason) {
-      if (ownerId() === user.id && pb.authStore.token === token) setError(readableError(reason, '模型切换失败'))
+      if (isCurrent()) setError(readableError(reason, '模型切换失败'))
+    } finally {
+      if (generation === modelGeneration) setSavingModel(false)
     }
   }
 
@@ -468,7 +478,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
   async function submit(text = activeSession().input.trim()) {
     const id = activeMode()
     const model = requestModel()
-    if (!text || running() || !boardReady() || !model || !modeDefinition(id).ready) return
+    if (!text || running() || !boardReady() || !model || savingModel() || !modeDefinition(id).ready) return
     captureWorkspace()
     controller?.abort()
     const requestController = new AbortController()
@@ -562,15 +572,11 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
         </div>
         <p class="lede">{current().lede}</p>
         <div class="model-slot">
-          <Show when={requestModel()} fallback={<p class="meta">{loadingModels() ? '正在读取模型…' : '模型未配置'}</p>}>
-            <Show when={loggedIn()} fallback={<p class="meta">当前模型 {requestModel()?.label}</p>}>
-              <label class="model-switch">
-                当前模型
-                <select value={requestModel()?.id} disabled={running()} onChange={(event) => void chooseModel(event.currentTarget.value)}>
-                  <For each={models()}>{(item) => <option value={item.id}>{item.label}</option>}</For>
-                </select>
-              </label>
-            </Show>
+          <Show when={loggedIn() && models().length > 0} fallback={
+            <p class="meta">{loadingModels() ? '正在读取模型…' : requestModel() ? `当前模型 ${requestModel()?.label}` : '模型未配置'}</p>
+          }>
+            <ModelPicker models={models()} selected={requestModel()} disabled={running() || savingModel()}
+              saving={savingModel()} onSelect={(id) => void chooseModel(id)} />
           </Show>
         </div>
         <nav class="modes" aria-label={props.onModeChange ? '会话模块' : '计算器模式'}>
@@ -606,7 +612,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
               {(example) => (
                 <button
                   type="button"
-                  disabled={running() || !boardReady() || !requestModel()}
+                  disabled={running() || !boardReady() || !canUseModel()}
                   onClick={() => void submit(example)}
                 >
                   {example}
@@ -621,7 +627,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
               {(id) => (
                 <>
                   <Show when={messagesFor(id).length === 0 && !draft()}>
-                    <div class="welcome"><Icon name="function" /><h2>今天，想探索什么？</h2><p class="lede">{modeDefinition(id).empty}</p><div class="examples"><button disabled={running() || !boardReady() || !requestModel()} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div></div>
+                    <div class="welcome"><Icon name="function" /><h2>今天，想探索什么？</h2><p class="lede">{modeDefinition(id).empty}</p><div class="examples"><button disabled={running() || !boardReady() || !canUseModel()} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div></div>
                   </Show>
                   <TransitionGroup name="msg">
                     <For each={messagesFor(id)}>
@@ -645,10 +651,10 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
             <Show when={error()}>
               <p class="banner">{error()}</p>
             </Show>
-            <Show when={!loadingModels() && !requestModel()}>
+            <Show when={!loadingModels() && !savingModel() && !requestModel()}>
               <p class="banner">
                 {loggedIn()
-                  ? <>请在 <a class="back-link" href="/settings/models">模型偏好</a> 中添加供应商并选择模型。</>
+                  ? (models().length ? '请先从上方选择一个模型。' : <>请在 <a class="back-link" href="/settings/models">模型偏好</a> 中添加供应商并选择模型。</>)
                   : <>你可以直接使用画板，也可以<a class="back-link" href="/login">登录</a>后配置自己的数学助手。</>}
               </p>
             </Show>
@@ -682,7 +688,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
               </button>
               <button
                 type="submit"
-                disabled={running() || !boardReady() || !requestModel() || !current().ready || !activeSession().input.trim()}
+                disabled={running() || !boardReady() || !canUseModel() || !current().ready || !activeSession().input.trim()}
               >
                 {running() ? `${current().submitLabel}中…` : current().submitLabel}
               </button>

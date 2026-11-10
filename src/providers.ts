@@ -26,6 +26,8 @@ export function personalModels(providers: ModelProvider[]): PublicModel[] {
   return providers.flatMap((provider) => provider.models.map((model) => ({
     id: `personal:${provider.id}:${model.id}`,
     label: `${model.label} · ${provider.name}`,
+    modelLabel: model.label,
+    providerName: provider.name,
     gateway: false,
     connection: { providerId: provider.id, protocol: provider.protocol, modelId: model.id },
   })))
