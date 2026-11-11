@@ -99,6 +99,11 @@ test('mobile settings navigate from the category list to a detail page and back'
 
 test('model settings save the selection, show connection results, and collapse gateway details', async ({ page }) => {
   await mockServices(page, true)
+  await page.setViewportSize({ width: 1440, height: 960 })
+  await page.route('**/api/providers', route => route.fulfill({ json: [{
+    id: 'ecnu-fixture', name: 'ECNU', baseUrl: 'https://chat.ecnu.edu.cn/open/api/v1', protocol: 'openai',
+    models: ['ecnu-max', 'ecnu-plus'].map(id => ({ id, label: id })),
+  }] }))
   const savedModels = []
   await page.route('http://pb.test/api/collections/users/records/design-user', async route => {
     const { model } = route.request().postDataJSON()
@@ -107,10 +112,20 @@ test('model settings save the selection, show connection results, and collapse g
   })
   await page.route('**/api/models/test', route => route.fulfill({ json: { ok: true, latencyMs: 37 } }))
   await page.goto('/settings/models')
-  const model = page.getByLabel('默认模型')
-  await expect(model).toHaveValue('test')
-  await model.selectOption('via-gateway')
+  const model = page.getByRole('button', { name: /^默认模型/ })
+  await expect(model).toHaveAccessibleName('默认模型 数学模型')
+  expect((await model.boundingBox()).width).toBeGreaterThanOrEqual(200)
+  await model.click()
+  const list = page.getByRole('listbox', { name: '可用模型' })
+  await expect(list.getByRole('group', { name: 'ECNU' }).getByRole('option')).toHaveCount(2)
+  await expect(list.getByRole('group', { name: '平台试用' })).toBeVisible()
+  await page.screenshot({ path: 'test-results/settings-default-model-picker-desktop.png' })
+  const search = page.getByRole('combobox', { name: '搜索模型' })
+  await search.fill('via-gateway')
+  await expect(list.getByRole('option')).toHaveCount(1)
+  await search.press('Enter')
   await expect(page.getByText('默认模型已保存，下次请求生效')).toBeVisible()
+  await expect(model).toHaveAccessibleName('默认模型 推理模型（网关）')
   expect(savedModels).toEqual(['via-gateway'])
   await page.getByRole('button', { name: '测试连接 推理模型' }).click()
   await expect(page.getByText('已连通，37 ms')).toBeVisible()
@@ -175,7 +190,7 @@ test('a personal Claude provider can be discovered, selected and used to draw', 
   await page.setViewportSize({ width: 1440, height: 960 })
   await page.goto('/settings/models')
   const main = page.getByRole('main')
-  await main.getByRole('button', { name: '添加供应商' }).click()
+  await main.getByRole('button', { name: '添加供应商', exact: true }).click()
   await main.getByLabel('供应商预设').selectOption('Claude（Anthropic）')
   await expect(main.getByLabel('API 基础地址')).toHaveValue('https://api.anthropic.com/v1')
   await expect(main.getByLabel('API 协议')).toHaveValue('anthropic')
@@ -185,9 +200,10 @@ test('a personal Claude provider can be discovered, selected and used to draw', 
   await main.getByLabel('API Key', { exact: true }).blur()
   await page.screenshot({ path: 'test-results/provider-form-desktop.png', fullPage: true })
   await main.getByRole('button', { name: '保存供应商' }).click()
-  const selection = main.getByLabel('默认模型')
-  await expect(selection).toHaveValue('')
-  await selection.selectOption(`personal:${id}:${model}`)
+  const selection = main.getByRole('button', { name: /^默认模型/ })
+  await expect(selection).toHaveAccessibleName('默认模型 选择模型')
+  await selection.click()
+  await main.getByRole('group', { name: 'Claude（Anthropic）' }).getByRole('option', { name: 'Claude Fixture claude-fixture', exact: true }).click()
   await expect(main.getByText('默认模型已保存，下次请求生效')).toBeVisible()
   await main.getByRole('button', { name: /^测试连接 Claude Fixture/ }).click()
   await expect(main.getByText('已连通，42 ms')).toBeVisible()
@@ -277,7 +293,7 @@ test('mobile custom providers can save a manual model when discovery is unavaila
   })
   await page.goto('/settings/models')
   const main = page.getByRole('main')
-  await main.getByRole('button', { name: '添加供应商' }).click()
+  await main.getByRole('button', { name: '添加供应商', exact: true }).click()
   await main.getByLabel('供应商名称').fill('自定义数学接口')
   await main.getByLabel('API 基础地址').fill('https://api.example.com/custom/v1')
   await main.getByLabel('API Key', { exact: true }).fill('fixture-custom-key')
@@ -345,6 +361,18 @@ for (const width of [1440, 768, 390, 320]) {
         await search.fill('')
         await search.blur()
         expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+      }
+      if (route === '/settings/models') {
+        const picker = page.getByRole('button', { name: /^默认模型/ })
+        await expect(picker).toBeVisible()
+        expect((await picker.boundingBox()).width).toBeGreaterThanOrEqual(140)
+        await picker.click()
+        const search = page.getByRole('combobox', { name: '搜索模型' })
+        await expect(search).toBeFocused()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+        if (width === 390) await page.screenshot({ path: 'test-results/settings-default-model-picker-mobile.png' })
+        await search.press('Escape')
+        await expect(picker).toBeFocused()
       }
       if (['/login', '/register', '/forgot'].includes(route)) {
         await expect(page.getByRole('link', { name: 'AI GeoGebra 首页' })).toBeVisible()

@@ -1440,10 +1440,9 @@ label {
   min-height:40px;
   white-space:nowrap
 }
-.settings-default-model select {
-  width:clamp(180px,24vw,248px);
-  border-color:var(--border);
-  font-size:14px
+.settings-default-model {
+  grid-template-columns:minmax(0,1fr);
+  gap:var(--s3)
 }
 .settings-group {
   margin-top:var(--s6)
@@ -1491,18 +1490,28 @@ label {
   flex:none
 }
 .provider-default-controls {
+  position:relative;
   display:flex;
   gap:var(--s2);
   align-items:center;
+  max-width:520px;
   min-width:0
 }
-.settings-default-model .provider-default-controls select {
+.provider-default-controls .model-switch {
+  position:static;
   flex:1;
-  width:0;
-  min-width:0
+  min-width:0;
+  font-size:14px
 }
-.provider-test-result {
-  grid-column:1/-1
+.provider-default-controls .model-switch-trigger {
+  min-height:40px
+}
+.provider-default-controls .model-picker-panel {
+  inset-inline:0;
+  width:auto
+}
+.settings-row .provider-test-result {
+  margin:0
 }
 .provider-row {
   align-items:center
@@ -2077,12 +2086,6 @@ label {
   .settings-back {
     display:inline-block;
     margin-bottom:var(--s4)
-  }
-  .settings-default-model {
-    grid-template-columns:1fr
-  }
-  .settings-default-model select {
-    width:100%
   }
   .auth-layout {
     grid-template-columns:minmax(0,1fr) auto;

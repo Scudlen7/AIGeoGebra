@@ -1,5 +1,6 @@
 import { For, Show, createMemo, createSignal, onMount } from 'solid-js'
 import { fetchGateway, fetchModels, fetchSummary, readableError, testModel, type GatewayModel, type PublicModel, type UsageSummary } from '../../api'
+import { ModelPicker } from '../../ModelPicker'
 import { authUser, pb } from '../../pb'
 import { fetchProviders, personalModels, preferredModel, removeProvider, testPersonalModel, type ModelProvider } from '../../providers'
 import { ProviderForm } from './ProviderForm'
@@ -17,7 +18,7 @@ export function ModelSettings() {
   const [usage, setUsage] = createSignal<UsageSummary | null>(null)
   const [editing, setEditing] = createSignal<{ provider?: ModelProvider }>()
   const [loading, setLoading] = createSignal(true)
-  const [saving, setSaving] = createSignal('')
+  const [saving, setSaving] = createSignal(false)
   const [removing, setRemoving] = createSignal('')
   const [notice, setNotice] = createSignal('')
   const [error, setError] = createSignal('')
@@ -43,9 +44,9 @@ export function ModelSettings() {
 
   async function chooseModel(id: string) {
     const user = authUser()
-    if (!user || saving() || !models().some((model) => model.id === id)) return
+    if (!user || saving() || selected()?.id === id || !models().some((model) => model.id === id)) return
     const token = pb.authStore.token
-    setSaving(id)
+    setSaving(true)
     setError('')
     setNotice('')
     try {
@@ -56,7 +57,7 @@ export function ModelSettings() {
     } catch (reason) {
       setError(readableError(reason, '默认模型保存失败'))
     } finally {
-      setSaving('')
+      setSaving(false)
     }
   }
 
@@ -118,19 +119,15 @@ export function ModelSettings() {
         <Show when={!loading()} fallback={<p class="settings-feedback" role="status">正在读取可用模型…</p>}>
           <div class="settings-row settings-default-model">
             <div>
-              <label class="settings-row-title" for="settings-default-model">默认模型</label>
+              <h3 class="settings-row-title" id="settings-default-model">默认模型</h3>
               <p id="settings-model-hint">新请求使用此模型。测试连接会发送一次简短请求。</p>
             </div>
             <div class="provider-default-controls">
-              <select id="settings-default-model" aria-describedby="settings-model-hint" value={saving() || selected()?.id || ''}
-                disabled={!models().length || Boolean(saving()) || Boolean(removing())}
-                onChange={(event) => void chooseModel(event.currentTarget.value)}>
-                <option value="" disabled>{models().length ? '请选择默认模型' : '请先添加供应商'}</option>
-                <For each={models()}>{(item) => <option value={item.id}>{displayName(item)}{item.connection ? '' : item.gateway ? ' · 网关' : ' · 平台试用'}</option>}</For>
-              </select>
+              <ModelPicker models={models()} selected={selected()} disabled={!models().length || saving() || Boolean(removing())}
+                saving={saving()} labelledBy="settings-default-model" describedBy="settings-model-hint" onSelect={(id) => void chooseModel(id)} />
               <Show when={selected()}>
                 {(model) => <button class="btn ghost" type="button" aria-label={`测试连接 ${displayName(model())}`}
-                  disabled={check()?.pending || Boolean(removing())} onClick={() => void checkConnection(model())}>
+                  disabled={saving() || check()?.pending || Boolean(removing())} onClick={() => void checkConnection(model())}>
                   {check()?.pending ? '测试中…' : '测试连接'}
                 </button>}
               </Show>

@@ -10,6 +10,8 @@ export function ModelPicker(props: {
   selected?: PublicModel
   disabled: boolean
   saving: boolean
+  labelledBy?: string
+  describedBy?: string
   onSelect: (id: string) => void
 }) {
   const [open, setOpen] = createSignal(false)
@@ -17,6 +19,7 @@ export function ModelPicker(props: {
   const [activeId, setActiveId] = createSignal<string>()
   const panelId = `model-picker-${createUniqueId()}`
   const listId = `${panelId}-options`
+  const valueId = `${panelId}-value`
   let root!: HTMLDivElement
   let trigger!: HTMLButtonElement
   let search: HTMLInputElement | undefined
@@ -53,7 +56,7 @@ export function ModelPicker(props: {
   })
   const options = createMemo(() => visibleGroups().flatMap((group) => group.options))
   const active = createMemo(() => options().find((item) => item.model.id === activeId()) ?? options()[0])
-  const label = () => props.saving ? '正在切换…' : props.selected?.label || '选择模型'
+  const label = () => props.saving ? '正在切换…' : props.selected?.label || (props.models.length ? '选择模型' : '请先添加供应商')
 
   function close(restoreFocus = false) {
     setOpen(false)
@@ -122,11 +125,13 @@ export function ModelPicker(props: {
     <div class="model-switch" ref={root} on:focusout={(event) => {
       if (open() && event.relatedTarget instanceof Node && !root.contains(event.relatedTarget)) close()
     }}>
-      <span>当前模型</span>
-      <button class="model-switch-trigger" ref={trigger} type="button" aria-label={`当前模型 ${label()}`}
+      <Show when={!props.labelledBy}><span>当前模型</span></Show>
+      <button class="model-switch-trigger" ref={trigger} type="button"
+        aria-label={props.labelledBy ? undefined : `当前模型 ${label()}`}
+        aria-labelledby={props.labelledBy ? `${props.labelledBy} ${valueId}` : undefined} aria-describedby={props.describedBy}
         aria-expanded={open()} aria-controls={open() ? panelId : undefined} aria-disabled={props.disabled}
         title={label()} onClick={toggle}>
-        <span>{label()}</span>
+        <span id={valueId}>{label()}</span>
         <Icon name="caret-down" />
       </button>
       <Show when={open()}>
