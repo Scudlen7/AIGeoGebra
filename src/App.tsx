@@ -12,10 +12,11 @@ import { blankCloud, fetchModels, loadCloudSession, readableError, saveCloudSess
 import { captureBoard, getApi, listObjects, mountBoard, onBoardChange, resetBoard, resizeBoard, restoreBoard, restoreCommands, setCoordinateSystem, unmountBoard } from './board'
 import { hasFailure, runTurn } from './chat'
 import { renderMarkdown } from './markdown'
+import { assistantText } from './assistant-text'
 import { isCalculatorMode, modeDefinition, modeList } from './modes'
 import { authUser, loggedIn, pb } from './pb'
 import { fetchProviders, personalModels, preferredModel } from './providers'
-import { emptySession, emptySessions, migrateLegacyStorage, modeStorageKey, normalizeSessions, readPendingCloud, readPendingSession, sessionStorageKey, writePendingCloud } from './session'
+import { emptySession, emptySessions, migrateLegacyStorage, modeStorageKey, normalizeSessions, readPendingCloud, readPendingSession, readDraft, writeDraft, sessionStorageKey, writePendingCloud } from './session'
 import type { AngleUnit, CalculatorMode, ChatTurn, ConstructionReport, ModeSession, SessionMap } from './types'
 
 const statusLabel = {
@@ -33,7 +34,7 @@ function emptyCloudMap(): Record<CalculatorMode, CloudSession> {
   }
 }
 
-export function App(props: { sessionId?: string; onModeChange?: (mode: CalculatorMode) => void }) {
+export function App(props: { sessionId?: string; draftId?: string; initialMode?: CalculatorMode; initialName?: string; onSessionSaved?: (id: string) => void; onModeChange?: (mode: CalculatorMode) => void }) {
   migrateLegacyStorage()
   const [loadingModels, setLoadingModels] = createSignal(true)
   const [savingModel, setSavingModel] = createSignal(false)
@@ -92,7 +93,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
     return { ...(sessions()[activeMode()] ?? emptySession()), id: null, name: '', mode: activeMode() }
   }
   const messagesFor = (id: CalculatorMode) => (loggedIn() ? cloudSlots()[id]?.messages ?? [] : (sessions()[id] ?? emptySession()).messages)
-  const shownName = () => cloudSlots()[activeMode()]?.name || '未命名会话'
+  const shownName = () => cloudSlots()[activeMode()]?.name || (activeSession().id ? '未命名会话' : '新会话')
 
   const requestModel = () => preferredModel(models(), authUser()?.model)
   const canUseModel = () => Boolean(requestModel()) && !savingModel()
@@ -144,8 +145,12 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
     if (!owner) return
     try {
       const slot = cloudSlots()[target]
+      if (props.draftId) {
+        writeDraft(owner, props.draftId, slot)
+        if (!slot.id) return
+      }
       writePendingCloud(owner, target, pendingModes()[target] ? slot : null, slot.id)
-      if (savedUnnamed) writePendingCloud(owner, target, null)
+      if (savedUnnamed && !props.draftId) writePendingCloud(owner, target, null)
     } catch {
       setSyncNote({ ok: false, text: '本机备份失败，请保留页面并重试云端同步' })
     }
@@ -160,7 +165,11 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
     if (owner !== ownerId()) {
       if (!owner) patchSession(activeMode(), { report: next })
       else {
-        try { writePendingCloud(owner, activeMode(), { ...cloudSlots()[activeMode()], report: next }) } catch { /* Keep the old account's in-memory copy until it is detached. */ }
+        try {
+          const slot = { ...cloudSlots()[activeMode()], report: next }
+          if (props.draftId) writeDraft(owner, props.draftId, slot)
+          else writePendingCloud(owner, activeMode(), slot)
+        } catch { /* Keep the old account's in-memory copy until it is detached. */ }
       }
       return
     }
@@ -179,6 +188,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
     if (!owner || !pendingModes()[target]) return
     const revision = revisions.get(target) ?? 0
     const slot = cloudSlots()[target]
+    if (!slot.id && !slot.messages.some((message) => message.role === 'user' && message.content.trim())) return
     if (saving.has(target) && (!leaving || saving.get(target) === revision || !slot.id)) return
     const generation = cloudGeneration
     saving.set(target, revision)
@@ -186,6 +196,11 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
     try {
       const saved = await saveCloudSession(slot, slot.messages, slot.report, owner)
       if (owner !== ownerId() || generation !== cloudGeneration) {
+        if (!slot.id && props.draftId) {
+          const recovered = { ...(readDraft(owner, props.draftId) ?? slot), ...saved }
+          writeDraft(owner, props.draftId, recovered)
+          writePendingCloud(owner, target, recovered)
+        }
         if (slot.id) {
           const pending = readPendingSession(owner, slot.id)
           if (pending && JSON.stringify([pending.input, pending.messages, pending.report]) === JSON.stringify([slot.input, slot.messages, slot.report])) {
@@ -201,6 +216,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
       persistPending(target, !slot.id)
       if (target === activeMode()) setSyncNote({ ok: unchanged, text: unchanged ? '已同步到云端' : '有新的修改待同步' })
       if (!unchanged) scheduleSync(target)
+      if (props.draftId && unchanged && !running() && !leaving) props.onSessionSaved?.(saved.id)
     } catch (reason) {
       if (owner === ownerId() && generation === cloudGeneration) {
         setRetryModes((current) => ({ ...current, [target]: true }))
@@ -331,7 +347,16 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
     setBoardError('')
     if (owner) {
       try {
-        if (props.sessionId) {
+        if (props.draftId) {
+          const cached = readDraft(owner, props.draftId)
+          const pending = cached?.id ? readPendingSession(owner, cached.id) : null
+          const slot = cached?.id
+            ? pending ?? await loadCloudSession(cached.id)
+            : cached ?? { ...blankCloud(props.initialMode ?? 'geometry'), name: props.initialName?.trim() || '' }
+          if (generation !== loadGeneration || owner !== ownerId()) return
+          setMode(slot.mode)
+          setCloudSession(slot, Boolean(pending || (cached && !cached.id && cached.messages.length)))
+        } else if (props.sessionId) {
           const pending = readPendingSession(owner, props.sessionId)
           const slot = pending ?? await loadCloudSession(props.sessionId)
           if (generation !== loadGeneration || owner !== ownerId()) return
@@ -342,7 +367,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
         }
       } catch (reason) {
         if (generation !== loadGeneration || owner !== ownerId()) return
-        if (props.sessionId) {
+        if (props.sessionId || props.draftId) {
           setBoardError('无法打开此会话，请重试或返回工作台选择其他会话')
           return
         }
@@ -432,7 +457,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
 
   onCleanup(() => {
     captureWorkspace(loadedOwner)
-    if (loadedOwner === ownerId() && activeSession().id) void syncCloud(activeMode(), true)
+    if (loadedOwner === ownerId() && (activeSession().id || activeSession().messages.length)) void syncCloud(activeMode(), true)
     modelGeneration += 1
     turnGeneration += 1
     loadGeneration += 1
@@ -632,7 +657,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
                     {(message) => (
                       <article class={message.role}>
                         <Show when={message.role === 'assistant'} fallback={<p>{message.content}</p>}>
-                          <div class="assistant-label"><Icon name="function" />数学助手</div><div class="md" innerHTML={renderMarkdown(message.content)} />
+                          <div class="assistant-label"><Icon name="function" />数学助手</div><div class="md" innerHTML={renderMarkdown(assistantText(message.content))} />
                         </Show>
                       </article>
                     )}
@@ -798,7 +823,7 @@ export function App(props: { sessionId?: string; onModeChange?: (mode: Calculato
           </Show>
         </section>
       </main>
-      <footer class="workspace-footer"><span>{loggedIn() ? '登录会话 · 自动保存到云端' : '访客模式 · 会话保存在本机'}</span><span>四种模式，分别探索</span></footer>
+      <footer class="workspace-footer"><span>{loggedIn() ? (activeSession().id ? '登录会话 · 自动保存到云端' : '本机草稿 · 发送消息后保存到云端') : '访客模式 · 会话保存在本机'}</span><span>四种模式，分别探索</span></footer>
     </div>
   )
 }

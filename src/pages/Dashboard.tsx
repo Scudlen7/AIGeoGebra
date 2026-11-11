@@ -3,7 +3,7 @@ import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-j
 import type { RecordModel } from 'pocketbase'
 import { AccountBar } from '../AccountBar'
 import { Icon } from '../Icon'
-import { createCloudSession, downloadJson, fetchSummary, readableError, sessionExport, workspacePath, type UsageSummary } from '../api'
+import { draftWorkspacePath, downloadJson, fetchSummary, readableError, sessionExport, workspacePath, type UsageSummary } from '../api'
 import { isCalculatorMode, modeDefinition, modeList } from '../modes'
 import { authUser, pb } from '../pb'
 import { readPendingSession, writePendingCloud } from '../session'
@@ -133,10 +133,10 @@ export function Dashboard() {
     setCreateError('')
     setCreating(true)
     try {
-      const created = await createCloudSession(createMode(), name().trim() || undefined)
+      const path = draftWorkspacePath(createMode(), name())
       if (disposed || authUser()?.id !== owner) return
       createDialog.close()
-      navigate(workspacePath(created.id))
+      navigate(path)
     } catch (reason) {
       if (!disposed) setCreateError(readableError(reason, '新建会话失败'))
     } finally {
@@ -309,7 +309,7 @@ export function Dashboard() {
               </select>
             </label>
             <label>会话名称（可选）
-              <input value={name()} maxlength={80} placeholder="未命名会话" disabled={creating()} onInput={(event) => setName(event.currentTarget.value)} />
+              <input value={name()} maxlength={80} placeholder="留空则根据首条消息自动命名" disabled={creating()} onInput={(event) => setName(event.currentTarget.value)} />
             </label>
             <Show when={createError()}><p class="banner" role="alert">{createError()}</p></Show>
             <div class="dashboard-dialog-actions">

@@ -160,7 +160,7 @@ test('a personal Claude provider can be discovered, selected and used to draw', 
     expect(request.headers()['x-api-key']).not.toBe(key)
     expect(request.headers()['x-pb-token']).toBeTruthy()
     const first = draws++ === 0
-    if (first) expect(body.tool_choice).toMatchObject({ type: 'tool', name: 'applyCommands' })
+    if (first) expect(body.tool_choice).toMatchObject({ type: 'auto' })
     const events = [
       { type: 'message_start', message: { id: 'msg_test', type: 'message', role: 'assistant', model: fast, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } },
       { type: 'content_block_start', index: 0, content_block: first ? { type: 'tool_use', id: 'toolu_test', name: 'applyCommands', input: {} } : { type: 'text', text: '' } },

@@ -13,6 +13,21 @@ beforeEach(() => {
   }
 })
 
+test('new sessions require a first message and derive a title while preserving explicit names', async () => {
+  const writes = []
+  globalThis.__createSession = async payload => { writes.push(payload); return { ...payload, id: 'saved' } }
+  const { saveCloudSession, blankCloud, sessionTitle } = await loadTs('src/api.ts', { mocks: {
+    './pb': `export const authUser = () => ({ id: 'user-a' }); export const pb = { collection: () => ({ create: globalThis.__createSession }) }`,
+  } })
+  const slot = blankCloud('geometry')
+  await assert.rejects(() => saveCloudSession({ ...slot, input: 'not sent' }, [], null), /第一条消息/)
+  assert.equal(writes.length, 0)
+  const messages = [{ role: 'user', content: '帮我画一个平行四边形。标出对角线。' }]
+  assert.equal((await saveCloudSession(slot, messages, null)).name, '平行四边形')
+  assert.equal((await saveCloudSession({ ...slot, name: '我的练习' }, messages, null)).name, '我的练习')
+  assert.equal(sessionTitle('请画一个三角形'), '三角形')
+})
+
 test('guest normalization preserves a full board snapshot alongside the latest log', async () => {
   const { normalizeSessions } = await loadTs('src/session.ts')
   const boardXml = '<geogebra><construction><element label="A"/><element label="manual"/></construction></geogebra>'

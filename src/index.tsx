@@ -15,6 +15,8 @@ import { ModelSettings } from './pages/settings/Models'
 import { SecuritySettings } from './pages/settings/Security'
 import { NotFound } from './pages/NotFound'
 import { authUser, initPb, loggedIn } from './pb'
+import { isCalculatorMode } from './modes'
+import { workspacePath } from './api'
 import './styles.css'
 
 const root = document.getElementById('root')
@@ -37,8 +39,16 @@ function Workspace() {
   return (
     <RequireAccount>
       <Suspense fallback={<main class="page" role="status">正在打开作图工作区…</main>}>
-        <Show when={typeof params.session === 'string' && params.session} keyed fallback={<App />}>
-          {(id) => <App sessionId={id} onModeChange={(mode) => navigate(`/dashboard?mode=${mode}`)} />}
+        <Show when={(typeof params.session === 'string' && params.session) || (typeof params.draft === 'string' && params.draft)} keyed fallback={<App />}>
+          {(_key) => {
+            const sessionId = typeof params.session === 'string' ? params.session : undefined
+            const draftId = typeof params.draft === 'string' ? params.draft : undefined
+            const initialMode = isCalculatorMode(params.mode) ? params.mode : 'geometry'
+            const initialName = typeof params.name === 'string' ? params.name : ''
+            return <App sessionId={sessionId} draftId={draftId} initialMode={initialMode} initialName={initialName}
+              onSessionSaved={(id) => navigate(workspacePath(id), { replace: true })}
+              onModeChange={(mode) => navigate(`/dashboard?mode=${mode}`)} />
+          }}
         </Show>
       </Suspense>
     </RequireAccount>

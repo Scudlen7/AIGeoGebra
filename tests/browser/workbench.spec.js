@@ -32,6 +32,7 @@ async function mockServices(page) {
     if (path === '/api/usage/summary') return route.fulfill({ json: { ...state.usage, sessions: records.length } })
     const base = '/api/collections/sessions/records'
     if (path === base && request.method() === 'POST') {
+      if (state.failCreate) return route.fulfill({ status: 503, json: { message: '暂时无法保存' } })
       const record = { ...request.postDataJSON(), id: 'new-session' }
       records.push(record)
       return route.fulfill({ json: record })
@@ -185,10 +186,10 @@ test('workbench groups history and restores the selected drawing through a faile
   await expect(dialog.getByLabel('会话名称')).toHaveValue('')
   await dialog.getByLabel('会话名称').fill('新的空间会话')
   await dialog.getByRole('button', { name: '创建会话' }).click()
-  await expect(page).toHaveURL(/\/workspace\?session=new-session$/)
+  await expect(page).toHaveURL(/\/workspace\?draft=.*mode=3d/)
   await expect(page.getByText('当前会话 新的空间会话')).toBeVisible()
   await expect(page.getByLabel('描述你的问题')).toBeEnabled()
-  expect(state.records.find(item => item.id === 'new-session')).toMatchObject({ mode: '3d', messages: [] })
+  expect(state.records.find(item => item.id === 'new-session')).toBeUndefined()
   await expect.poll(() => page.evaluate(() => window.boardXml)).toBe('<geogebra><construction/></geogebra>')
 })
 
@@ -342,9 +343,9 @@ test('sidebar switches directly between drawings and creates a blank session in 
   await expect(sessions.getByRole('link', { name: '分布题' })).toBeVisible()
   await expect(sessions.getByRole('link', { name: '几何甲' })).toHaveCount(0)
   await sessions.getByRole('button', { name: '新建概率会话' }).click()
-  await expect(page).toHaveURL(/session=new-session$/)
+  await expect(page).toHaveURL(/draft=.*mode=probability/)
   await expect(page.getByLabel('描述你的问题')).toBeEnabled()
-  expect(state.records.find(item => item.id === 'new-session')).toMatchObject({ mode: 'probability', messages: [], report: null })
+  expect(state.records.find(item => item.id === 'new-session')).toBeUndefined()
   await expect.poll(() => page.evaluate(() => window.boardXml)).toBe('<geogebra><construction/></geogebra>')
 })
 
@@ -362,7 +363,84 @@ test('mobile navigation offers history and new sessions for the signed-in user',
   await expect.poll(() => page.evaluate(() => window.boardXml)).toBe(xml('E'))
   await page.getByRole('button', { name: '打开导航' }).click()
   await sessions.getByRole('button', { name: '新建计算器会话' }).click()
-  await expect(page).toHaveURL(/session=new-session$/)
+  await expect(page).toHaveURL(/draft=.*mode=scientific/)
   await expect(menu).toBeHidden()
-  expect(state.records.find(item => item.id === 'new-session').mode).toBe('scientific')
+  expect(state.records.find(item => item.id === 'new-session')).toBeUndefined()
+})
+
+async function replyWithText(page) {
+  await page.route('**/llm/chat/completions', route => route.fulfill({ contentType: 'text/event-stream', body:
+    'data: ' + JSON.stringify({ id: 'reply', created: 1, model: 'test', choices: [{ index: 0, delta: { content: '请确认需要标注哪些顶点。' }, finish_reason: null }] }) + '\n\n' +
+    'data: ' + JSON.stringify({ id: 'reply', created: 1, model: 'test', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n',
+  }))
+}
+
+test('new drafts stay out of history until the first message, then save once with an automatic title', async ({ page }) => {
+  const state = await mockServices(page)
+  await replyWithText(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openGeometrySession(page)
+  const sidebar = page.getByRole('region', { name: '侧栏会话' })
+  for (let index = 0; index < 3; index++) {
+    await sidebar.getByRole('button', { name: '新建几何会话' }).click()
+    await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+    await expect(page.locator('.transcript article')).toHaveCount(0)
+  }
+  expect(state.records).toHaveLength(5)
+  const prompt = page.getByLabel('描述你的问题')
+  await prompt.fill('帮我画一个平行四边形')
+  await page.waitForTimeout(1000) // Exercise the debounced autosave of an unsent draft.
+  expect(state.records).toHaveLength(5)
+  await expect(sidebar.getByRole('link', { name: '新会话', exact: true })).toHaveCount(0)
+  await page.reload()
+  await expect(prompt).toHaveValue('帮我画一个平行四边形')
+  await expect(prompt).toBeEnabled()
+  await prompt.press('Enter')
+  await expect(page).toHaveURL(/session=new-session$/)
+  expect(state.records).toHaveLength(6)
+  expect(state.records[5]).toMatchObject({ name: '平行四边形', mode: 'geometry' })
+  expect(state.records[5].messages).toHaveLength(2)
+  await expect(sidebar.getByRole('link', { name: '平行四边形', exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.locator('.transcript')).toContainText('帮我画一个平行四边形')
+  expect(state.records).toHaveLength(6)
+})
+
+test('an explicitly named draft keeps its name on the first save', async ({ page }) => {
+  const state = await mockServices(page)
+  await replyWithText(page)
+  await page.goto('/login')
+  await signIn(page)
+  await page.getByRole('main').getByRole('button', { name: '新建会话', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '新建会话' })
+  await dialog.getByLabel('会话名称').fill('课堂练习')
+  await dialog.getByRole('button', { name: '创建会话' }).click()
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+  expect(state.records).toHaveLength(5)
+  await page.getByLabel('描述你的问题').fill('画一个三角形')
+  await page.getByLabel('描述你的问题').press('Enter')
+  await expect(page).toHaveURL(/session=new-session$/)
+  expect(state.records[5].name).toBe('课堂练习')
+})
+
+test('a failed first save recovers the draft and its title after reload without duplicating history', async ({ page }) => {
+  const state = await mockServices(page)
+  await replyWithText(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openGeometrySession(page)
+  await page.getByRole('region', { name: '侧栏会话' }).getByRole('button', { name: '新建几何会话' }).click()
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+  state.failCreate = true
+  await page.getByLabel('描述你的问题').fill('画一个三角形')
+  await page.getByLabel('描述你的问题').press('Enter')
+  await expect(page.getByRole('button', { name: '重试同步' })).toBeVisible()
+  expect(state.records).toHaveLength(5)
+  await page.reload()
+  await expect(page.locator('.transcript')).toContainText('画一个三角形')
+  await expect(page.getByRole('button', { name: '重试同步' })).toBeEnabled()
+  state.failCreate = false
+  await page.getByRole('button', { name: '重试同步' }).click()
+  await expect(page).toHaveURL(/session=new-session$/)
+  expect(state.records).toHaveLength(6)
+  expect(state.records[5].name).toBe('三角形')
 })

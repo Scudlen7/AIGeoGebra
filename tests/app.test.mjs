@@ -103,7 +103,7 @@ async function waitFor(predicate, description = 'expected state') {
   }
 }
 
-async function mount({ user = null, cloud = {}, storage, sessionId, state: previousState } = {}) {
+async function mount({ user = null, cloud = {}, storage, sessionId, draftId, initialMode, initialName, state: previousState } = {}) {
   const window = new Window({ url: sessionId ? `http://localhost/workspace?session=${sessionId}` : 'http://localhost/' })
   activeWindow = window
   for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLDivElement', 'HTMLTextAreaElement', 'Element', 'Node', 'Document', 'MutationObserver', 'ResizeObserver', 'localStorage', 'sessionStorage', 'CustomEvent', 'KeyboardEvent', 'Event']) {
@@ -119,7 +119,7 @@ async function mount({ user = null, cloud = {}, storage, sessionId, state: previ
   const { App, render } = await loadTs('src/App.tsx', { mocks, source: source + '\nexport { render } from "solid-js/web"' })
   const host = document.createElement('div')
   document.body.append(host)
-  cleanup = render(() => App({ sessionId }), host)
+  cleanup = render(() => App({ sessionId, draftId, initialMode, initialName }), host)
   await waitFor(() => !document.querySelector('textarea').disabled, 'board ready')
   return state
 }
@@ -141,6 +141,38 @@ async function submit(text, state) {
 function report(commands, failed = false) {
   return { results: commands.map((command, index) => ({ command, status: failed && index === commands.length - 1 ? 'failed' : 'ok', labels: [], error: null })), objects: [], hint: '' }
 }
+
+test('an unsent named draft stays local even when its board and input change', async () => {
+  const state = await mount({ user: { id: 'alice' }, draftId: 'draft-a', initialMode: '3d', initialName: '空间练习' })
+  const input = document.querySelector('textarea')
+  input.value = '尚未发送'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  state.xml = '<geogebra><construction>local draft</construction></geogebra>'
+  for (const listener of state.boardListeners) listener()
+  await new Promise(resolve => setTimeout(resolve, 1200))
+  assert.equal(state.saves.length, 0)
+  const cached = JSON.parse(localStorage.getItem('aiggb.cloud.alice.draft.draft-a'))
+  assert.equal(cached.input, '尚未发送')
+  assert.equal(cached.name, '空间练习')
+  assert.equal(cached.mode, '3d')
+  assert.equal(cached.report.boardXml, state.xml)
+})
+
+test('a first save that finishes after leaving retains the saved id in its draft backup', async () => {
+  const state = await mount({ user: { id: 'alice' }, draftId: 'draft-a', initialMode: 'geometry' })
+  const pendingSave = deferred()
+  state.saveHook = () => pendingSave.promise
+  const turn = await submit('画一个三角形', state)
+  turn.resolve('完成')
+  await waitFor(() => state.saves.length === 1)
+  cleanup()
+  cleanup = undefined
+  pendingSave.resolve({ id: 'saved-draft', name: '三角形' })
+  await waitFor(() => JSON.parse(localStorage.getItem('aiggb.cloud.alice.draft.draft-a')).id === 'saved-draft')
+  assert.equal(state.saves.length, 1)
+  const snapshot = JSON.parse(localStorage.getItem('aiggb.cloud.alice.session.saved-draft'))
+  assert.equal(snapshot.messages[0].content, '画一个三角形')
+})
 
 test('Escape releases the form immediately and a delayed old response cannot overwrite a new turn', async () => {
   const state = await mount()

@@ -73,6 +73,14 @@ export function readPendingCloud(owner: string, mode: CalculatorMode): CloudSess
   return pending?.mode === mode ? pending : null
 }
 
+export function readDraft(owner: string, id: string): CloudSession | null {
+  return readPendingSnapshot(`aiggb.cloud.${owner}.draft.${id}`)
+}
+
+export function writeDraft(owner: string, id: string, slot: CloudSession) {
+  localStorage.setItem(`aiggb.cloud.${owner}.draft.${id}`, JSON.stringify(slot))
+}
+
 export function readPendingSession(owner: string, id: string): CloudSession | null {
   const pending = readPendingSnapshot(`aiggb.cloud.${owner}.session.${id}`)
   if (pending?.id === id) return pending

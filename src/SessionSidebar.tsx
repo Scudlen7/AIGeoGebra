@@ -1,6 +1,6 @@
 import { useNavigate } from '@solidjs/router'
 import { For, Show, createEffect, createResource, createSignal, onCleanup } from 'solid-js'
-import { createCloudSession, readableError, workspacePath } from './api'
+import { draftWorkspacePath, readableError, workspacePath } from './api'
 import { isCalculatorMode, modeDefinition, modeList } from './modes'
 import { authUser, loggedIn, pb } from './pb'
 import type { CalculatorMode } from './types'
@@ -13,7 +13,7 @@ export function SessionSidebar(props: { mode: CalculatorMode; sessionId?: string
   const [creating, setCreating] = createSignal(false)
   const [createError, setCreateError] = createSignal('')
   const [history, { refetch }] = createResource(
-    () => props.enabled && loggedIn() && authUser()?.id,
+    () => props.enabled && loggedIn() && `${authUser()?.id}:${props.sessionId || ''}`,
     async () => {
       try {
         const entries = await pb.collection('sessions').getFullList<SessionEntry>({ fields: 'id,name,mode', sort: '-updated' })
@@ -34,10 +34,10 @@ export function SessionSidebar(props: { mode: CalculatorMode; sessionId?: string
     setCreating(true)
     setCreateError('')
     try {
-      const session = await createCloudSession(mode())
+      const path = draftWorkspacePath(mode())
       if (disposed || authUser()?.id !== owner) return
       props.onNavigate?.()
-      navigate(workspacePath(session.id))
+      navigate(path)
     } catch (reason) {
       if (!disposed) setCreateError(readableError(reason, '新建会话失败'))
     } finally {
