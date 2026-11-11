@@ -47,6 +47,8 @@ export function blankCloud(mode: CalculatorMode): CloudSession {
 
 export function sessionTitle(text: string) {
   const trimmed = text.trim().replace(/\s+/g, ' ')
+    .replace(/^(?:请)?(?:帮我|为我)?(?:画出|绘制|画|构造|创建|计算|求出)\s*(?:一个|一条|一下)?\s*/, '')
+    .split(/[。！？\n]/)[0].trim()
   if (!trimmed) return '未命名会话'
   let name = ''
   let count = 0
@@ -66,6 +68,12 @@ export function safeRedirect(value: string | string[] | null | undefined) {
 
 export function workspacePath(id: string) {
   return `/workspace?session=${encodeURIComponent(id)}`
+}
+
+export function draftWorkspacePath(mode: CalculatorMode, name = '') {
+  const params = new URLSearchParams({ draft: crypto.randomUUID(), mode })
+  if (name.trim()) params.set('name', name.trim())
+  return `/workspace?${params}`
 }
 
 export function readableError(error: unknown, fallback: string) {
@@ -180,12 +188,6 @@ export async function loadCloudSession(id: string) {
   return fromSessionRecord(item as unknown as Record<string, unknown>)
 }
 
-export async function createCloudSession(mode: CalculatorMode, name = '未命名会话') {
-  const owner = authUser()?.id
-  if (!owner) throw new Error('请先登录')
-  return pb.collection('sessions').create({ owner, name, mode, messages: [], input: '', report: null })
-}
-
 const sessionWrites = new Map<string, Promise<Record<string, unknown>>>()
 
 export async function saveCloudSession(slot: CloudSession, messages: ChatTurn[], report: ConstructionReport | null, owner = authUser()?.id) {
@@ -194,7 +196,9 @@ export async function saveCloudSession(slot: CloudSession, messages: ChatTurn[],
   const payload = { messages, input: slot.input, report }
   const id = slot.id
   if (!id) {
-    const name = sessionTitle(messages.find((item) => item.role === 'user')?.content || '')
+    const first = messages.find((item) => item.role === 'user' && item.content.trim())
+    if (!first) throw new Error('发送第一条消息后才会保存到历史会话')
+    const name = slot.name.trim() || sessionTitle(first.content)
     const created = await pb.collection('sessions').create({ ...payload, name, mode: slot.mode, owner: user.id })
     return { id: created.id, name: String(created.name || name) }
   }
