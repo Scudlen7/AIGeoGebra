@@ -225,8 +225,6 @@
 
 登录后的修改会先保留本机待同步副本。同步失败时可点击「重试同步」，刷新或重新打开同一会话后仍能恢复。副本按账号和会话隔离，旧格式的副本按其中保存的会话 ID 匹配。设置里的清空本机缓存也会删除这些待同步副本。旧版本已经丢失、且未保存的历史命令无法补回。
 
-第一阶段的修复范围、验证方式与后续人工验收见 [第一阶段记录](docs/stage-1.md)。
-
 ---
 
 ## 4. 技术架构
@@ -676,7 +674,7 @@ GeoGebra 概率计算器（Classic 透视 `B`）的界面状态无法用普通�
 
 ## 11. 功能完成度一览
 
-2026-11-02 第二阶段本地验收及复验命令见 [第二阶段验收记录](docs/stage-2.md)。新增 `npm run test:browser`、`npm run test:integration` 和可选的 `npm run test:math`，GitHub Actions 自动运行不依赖模型密钥的检查。
+新增 `npm run test:browser`、`npm run test:integration` 和可选的 `npm run test:math`，GitHub Actions 自动运行不依赖模型密钥的检查。
 
 > 本 README 描述的是项目交付时的**预期形态**。以下清单标出已完成与待完成项。
 

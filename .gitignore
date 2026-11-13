@@ -47,6 +47,12 @@ web_modules/
 # TypeScript cache
 *.tsbuildinfo
 
+# CodeGraph local index
+/.codegraph/
+
+# Private project documents
+/docs/
+
 # Optional npm cache directory
 .npm
 
