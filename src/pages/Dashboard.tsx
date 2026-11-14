@@ -323,12 +323,15 @@ export function Dashboard() {
         </div>
 
         <dialog class="dashboard-dialog" ref={reminderDialog} aria-labelledby="usage-reminder-title"
-          aria-describedby="usage-reminder-description" onClose={rememberUsageReminder}>
+          aria-describedby="usage-reminder-description" onCancel={rememberUsageReminder}>
           <h2 id="usage-reminder-title">试用额度提醒</h2>
           <p id="usage-reminder-description" class="dialog-copy">平台模型每天提供有限的试用额度。经常作图或连续解题时，建议提前在「模型偏好」添加自己的模型供应商，填写 API 地址和 API Key，再选为默认模型。个人模型的额度和费用由供应商决定。</p>
           <label class="check"><input ref={muteReminder} type="checkbox" />今日不再提醒</label>
           <div class="dashboard-dialog-actions">
-            <button class="btn ghost" type="button" autofocus onClick={() => reminderDialog.close()}>关闭</button>
+            <button class="btn ghost" type="button" autofocus onClick={() => {
+              rememberUsageReminder()
+              reminderDialog.close()
+            }}>关闭</button>
             <A class="btn" href="/settings/models" onClick={rememberUsageReminder}>前往模型偏好</A>
           </div>
         </dialog>
