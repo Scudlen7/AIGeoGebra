@@ -1,14 +1,13 @@
 import PocketBase, { type RecordModel } from 'pocketbase'
 import { createSignal } from 'solid-js'
 
-export let pb = new PocketBase('http://127.0.0.1:8090')
+export const pb = new PocketBase(window.location.origin)
 
-const [authUser, setAuthUser] = createSignal<RecordModel | null>(pb.authStore.record)
+const [authUser, setAuthUser] = createSignal<RecordModel | null>(null)
 export { authUser }
 
 export function initPb(url: string) {
-  const base = url.trim() || 'http://127.0.0.1:8090'
-  pb = new PocketBase(base)
+  pb.baseURL = url
   pb.autoCancellation(false)
   setAuthUser(pb.authStore.isValid ? pb.authStore.record : null)
   pb.authStore.onChange(() => {

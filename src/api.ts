@@ -1,6 +1,6 @@
 import { authUser, pb } from './pb'
 import type { PersonalConnection } from './providers'
-import type { CalculatorMode, ChatTurn, ConstructionReport } from './types'
+import type { AngleUnit, CalculatorMode, ChatTurn, ConstructionReport } from './types'
 
 export type PublicModel = {
   id: string
@@ -37,6 +37,7 @@ export type CloudSession = {
   messages: ChatTurn[]
   input: string
   report: ConstructionReport | null
+  angleUnit?: AngleUnit
 }
 
 type ApiError = Error & { retryAfter?: number }
@@ -171,6 +172,7 @@ export function fromSessionRecord(record: Record<string, unknown>): CloudSession
     messages: Array.isArray(record.messages) ? (record.messages as ChatTurn[]) : [],
     input: typeof record.input === 'string' ? record.input : '',
     report: isReport(record.report) ? record.report : null,
+    ...(safeMode === 'scientific' && (record.angleUnit === 'degree' || record.angleUnit === 'radian') ? { angleUnit: record.angleUnit } : {}),
   }
 }
 
@@ -193,7 +195,10 @@ const sessionWrites = new Map<string, Promise<Record<string, unknown>>>()
 export async function saveCloudSession(slot: CloudSession, messages: ChatTurn[], report: ConstructionReport | null, owner = authUser()?.id) {
   const user = authUser()
   if (!user || user.id !== owner) throw new Error('登录账号已改变，请重新同步')
-  const payload = { messages, input: slot.input, report }
+  const payload = {
+    messages, input: slot.input, report,
+    ...(slot.mode === 'scientific' && slot.angleUnit ? { angleUnit: slot.angleUnit } : {}),
+  }
   const id = slot.id
   if (!id) {
     const first = messages.find((item) => item.role === 'user' && item.content.trim())
@@ -236,6 +241,7 @@ export function sessionExport(record: Record<string, unknown>) {
     messages: record.messages ?? [],
     input: record.input ?? '',
     report: record.report ?? null,
+    ...(record.mode === 'scientific' && (record.angleUnit === 'degree' || record.angleUnit === 'radian') ? { angleUnit: record.angleUnit } : {}),
     created: record.created,
     updated: record.updated,
   }

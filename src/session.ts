@@ -45,6 +45,7 @@ export function normalizeSessions(value: unknown): SessionMap {
       messages: Array.isArray(item.messages) ? (item.messages as ChatTurn[]) : [],
       input: typeof item.input === 'string' ? item.input : '',
       report: isReport(item.report) ? item.report : null,
+      ...(id === 'scientific' && (item.angleUnit === 'degree' || item.angleUnit === 'radian') ? { angleUnit: item.angleUnit } : {}),
     }
   }
   return sessions

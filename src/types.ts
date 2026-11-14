@@ -36,6 +36,7 @@ export type CalculatorMode = 'geometry' | '3d' | 'probability' | 'scientific'
 export type AngleUnit = 'degree' | 'radian'
 
 export type ModeSession = {
+  angleUnit?: AngleUnit
   messages: ChatTurn[]
   input: string
   report: ConstructionReport | null
