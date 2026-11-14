@@ -150,6 +150,18 @@ test('real PocketBase account, email, session and usage integration', { timeout:
     await start()
     assert.equal((await api(path, { token: alice.token })).data.input, '新草稿')
   })
+  await t.test('scientific sessions accept only known angle units and can open without one', async () => {
+    const basePath = '/api/collections/sessions/records'
+    const created = await post(basePath, { owner: alice.record.id, name: '三角函数', mode: 'scientific' }, alice.token)
+    assert.equal(created.status, 200, JSON.stringify(created.data))
+    assert.equal(created.data.angleUnit, '')
+    const path = `${basePath}/${created.data.id}`
+    const update = angleUnit => api(path, { method: 'PATCH', token: alice.token, body: { angleUnit } })
+    assert.equal((await update('gradians')).status, 400)
+    assert.equal((await update('radian')).status, 200)
+    assert.equal((await api(path, { token: alice.token })).data.angleUnit, 'radian')
+    assert.equal((await api(path, { method: 'DELETE', token: alice.token })).status, 204)
+  })
   await t.test('authenticated usage is recorded and summaries are scoped to the user', async () => {
     const env = { PB_URL: base, PB_SUPERUSER_EMAIL: 'admin@example.test', PB_SUPERUSER_PASSWORD: password }
     assert.deepEqual(await verifyUser(env, alice.token), { id: alice.record.id })

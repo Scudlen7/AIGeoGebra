@@ -41,6 +41,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
   const [models, setModels] = createSignal<PublicModel[]>([])
   const [boardReady, setBoardReady] = createSignal(false)
   const [boardError, setBoardError] = createSignal('')
+  const [workspaceReady, setWorkspaceReady] = createSignal(false)
   const [mode, setMode] = makePersisted<CalculatorMode, Signal<CalculatorMode>>(createSignal<CalculatorMode>('geometry'), {
     name: modeStorageKey,
   })
@@ -87,7 +88,10 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
 
   const activeMode = (): CalculatorMode => (isCalculatorMode(mode()) ? mode() : 'geometry')
   const current = () => modeDefinition(activeMode())
-  const unit = (): AngleUnit => (angleUnit() === 'radian' ? 'radian' : 'degree')
+  const unit = (): AngleUnit => {
+    const saved = activeMode() === 'scientific' ? activeSession().angleUnit : undefined
+    return saved ?? (angleUnit() === 'radian' ? 'radian' : 'degree')
+  }
   const activeSession = () => {
     if (loggedIn()) return cloudSlots()[activeMode()] ?? blankCloud(activeMode())
     return { ...(sessions()[activeMode()] ?? emptySession()), id: null, name: '', mode: activeMode() }
@@ -203,7 +207,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
         }
         if (slot.id) {
           const pending = readPendingSession(owner, slot.id)
-          if (pending && JSON.stringify([pending.input, pending.messages, pending.report]) === JSON.stringify([slot.input, slot.messages, slot.report])) {
+          if (pending && pending.angleUnit === slot.angleUnit && JSON.stringify([pending.input, pending.messages, pending.report]) === JSON.stringify([slot.input, slot.messages, slot.report])) {
             writePendingCloud(owner, target, null, slot.id)
           }
         }
@@ -329,6 +333,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
     setAttempts(0)
     setRunning(false)
     setMode(next)
+    setWorkspaceReady(false)
     if (loggedIn()) {
       try {
         await loadCloudMode(next)
@@ -338,12 +343,16 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
         }
       }
     }
-    if (generation === loadGeneration && owner === ownerId() && next === activeMode()) await loadBoard(next)
+    if (generation === loadGeneration && owner === ownerId() && next === activeMode()) {
+      setWorkspaceReady(true)
+      await loadBoard(next)
+    }
   }
 
   async function loadWorkspace() {
     const generation = ++loadGeneration
     const owner = ownerId()
+    setWorkspaceReady(false)
     setBoardError('')
     if (owner) {
       try {
@@ -374,7 +383,15 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
         setError(readableError(reason, '云端会话读取失败'))
       }
     }
-    if (generation === loadGeneration && owner === ownerId()) await loadBoard(activeMode())
+    if (generation === loadGeneration && owner === ownerId()) {
+      setWorkspaceReady(true)
+      await loadBoard(activeMode())
+    }
+  }
+
+  function retryBoard() {
+    if (workspaceReady()) void loadBoard(activeMode())
+    else void loadWorkspace()
   }
 
   async function loadModels() {
@@ -511,9 +528,10 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
     const owner = ownerId()
     const isCurrent = () => generation === turnGeneration && owner === ownerId() && id === activeMode()
     const history: ChatTurn[] = [...activeSession().messages, { role: 'user', content: text }]
+    const turnUnit = unit()
     let streamedText = ''
     let completed = false
-    patchWorkspace(id, { messages: history, input: '' })
+    patchWorkspace(id, { messages: history, input: '', ...(id === 'scientific' ? { angleUnit: turnUnit } : {}) })
     setDraft('')
     setReport(null)
     setAttempts(0)
@@ -524,7 +542,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
     try {
       const answer = await runTurn({
         mode: id,
-        angleUnit: unit(),
+        angleUnit: turnUnit,
         model: model.id,
         connection: model.connection,
         messages: history,
@@ -689,13 +707,25 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
             }}
           >
             <label class="composer-label" for="math-prompt">描述你的问题</label>
+            <Show when={workspaceReady() && activeMode() === 'scientific'}>
+              <p class="meta">当前单位为{unit() === 'radian' ? '弧度' : '角度'}</p>
+            </Show>
+            <Show when={current().ready && !boardReady()}>
+              <p id="composer-board-status" class="meta" role={boardError() ? 'alert' : 'status'}>
+                {boardError() || '正在准备画板，就绪后即可发送。'}
+              </p>
+              <Show when={boardError()}>
+                <button class="btn ghost" type="button" onClick={retryBoard}>重新加载画板</button>
+              </Show>
+            </Show>
             <textarea
               id="math-prompt"
               ref={inputEl}
               rows={3}
               value={activeSession().input}
               placeholder={current().placeholder}
-              disabled={running() || (current().ready && !boardReady())}
+              aria-describedby={current().ready && !boardReady() ? 'composer-board-status' : undefined}
+              disabled={running() || !workspaceReady()}
               onInput={(event) => {
                 patchWorkspace(activeMode(), { input: event.currentTarget.value })
                 scheduleSync()
@@ -741,7 +771,13 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
                 type="button"
                 classList={{ active: unit() === 'radian' }}
                 aria-pressed={unit() === 'radian'}
-                onClick={() => setAngleUnit(unit() === 'radian' ? 'degree' : 'radian')}
+                disabled={running() || !workspaceReady()}
+                onClick={() => {
+                  const next = unit() === 'radian' ? 'degree' : 'radian'
+                  if (!loggedIn()) setAngleUnit(next)
+                  patchWorkspace('scientific', { angleUnit: next })
+                  scheduleSync()
+                }}
               >
                 {unit() === 'radian' ? '弧度' : '角度'}
               </button>
@@ -758,10 +794,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
                 <Show when={!boardError()}><div class="skeleton" /><div class="skeleton short" /></Show>
                 <p>{boardError() || '正在加载画板…'}</p>
                 <Show when={boardError()}>
-                  <button class="btn ghost" type="button" onClick={() => {
-                    if (props.sessionId && activeSession().id !== props.sessionId) void loadWorkspace()
-                    else void loadBoard(activeMode())
-                  }}>重新加载</button>
+                  <button class="btn ghost" type="button" onClick={retryBoard}>重新加载</button>
                   <Show when={getApi()}>
                     <button class="btn ghost" type="button" onClick={() => {
                       setBoardReady(true)

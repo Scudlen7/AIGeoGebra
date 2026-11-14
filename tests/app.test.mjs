@@ -120,7 +120,7 @@ async function mount({ user = null, cloud = {}, storage, sessionId, draftId, ini
   const host = document.createElement('div')
   document.body.append(host)
   cleanup = render(() => App({ sessionId, draftId, initialMode, initialName }), host)
-  await waitFor(() => !document.querySelector('textarea').disabled, 'board ready')
+  await waitFor(() => !document.querySelector('#composer-board-status'), 'board ready')
   return state
 }
 
@@ -369,7 +369,7 @@ test('rapid mode switches ignore an older duplicate cloud load after the newer l
   button('3D').click()
   assert.equal(loads, 2)
   newer.resolve({ id: 'newer', name: 'Newer', mode: '3d', messages: [{ role: 'user', content: 'newer conversation' }], input: '', report: { ...report([]), boardXml: '<geogebra><construction>newer</construction></geogebra>' } })
-  await waitFor(() => !document.querySelector('textarea').disabled)
+  await waitFor(() => !document.querySelector('#composer-board-status'))
   const editedXml = '<geogebra><construction>edited newer board</construction></geogebra>'
   state.xml = editedXml
   for (const listener of state.boardListeners) listener()
@@ -393,12 +393,13 @@ test('a failed legacy restore offers a clean restart and allows another request'
   state.replayResult = { results: [{ command: 'Segment(A,B)', status: 'failed', labels: [], error: 'missing A and B' }], objects: [], hint: '' }
   button('3D').click()
   await waitFor(() => button('清空并重新开始'), 'legacy recovery action')
-  assert.equal(document.querySelector('textarea').disabled, true)
+  assert.equal(document.querySelector('textarea').disabled, false)
+  assert.equal(document.querySelector('.conversation button[type=submit]').disabled, true)
   assert.match(document.querySelector('.board-state').textContent, /未能完整恢复/)
   state.replayResult = undefined
   const mounts = state.mounts.length
   button('清空并重新开始').click()
-  await waitFor(() => state.mounts.length > mounts && !document.querySelector('textarea').disabled)
+  await waitFor(() => state.mounts.length > mounts && !document.querySelector('#composer-board-status'))
   assert.equal(state.xml, emptyXml)
   assert.doesNotMatch(document.querySelector('.transcript').textContent, /legacy request/)
   const turn = await submit('new construction after recovery', state)

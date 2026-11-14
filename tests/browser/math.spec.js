@@ -19,6 +19,7 @@ for (const mode of Object.keys(labels)) {
       await page.goto('/try')
       if (mode !== 'geometry') await page.getByRole('button', { name: labels[mode], exact: true }).click()
       await expect(page.locator('.conversation textarea')).toBeEnabled({ timeout: 120000 })
+      await expect(page.locator('#composer-board-status')).toHaveCount(0, { timeout: 120000 })
       model = (await (await page.request.get('/api/status')).json()).model
       if (live) expect(model).toBeTruthy()
     })

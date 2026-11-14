@@ -109,13 +109,19 @@ export function Dashboard() {
     }
   }
 
+  async function loadUsage() {
+    setUsageError('')
+    try {
+      const usage = await fetchSummary()
+      if (!disposed) setSummary(usage)
+    } catch (reason) {
+      if (!disposed) setUsageError(readableError(reason, '用量读取失败'))
+    }
+  }
+
   onMount(() => {
     void loadSessions()
-    fetchSummary().then((usage) => {
-      if (!disposed) setSummary(usage)
-    }).catch((reason) => {
-      if (!disposed) setUsageError(readableError(reason, '用量读取失败'))
-    })
+    void loadUsage()
   })
   onCleanup(() => { disposed = true })
 
@@ -235,7 +241,7 @@ export function Dashboard() {
             <Show when={actionError()}><p class="banner" role="alert">{actionError()}</p></Show>
             <Show when={!loading()} fallback={<p class="dashboard-empty" role="status">正在读取你的会话…</p>}>
               <Show when={!listError()} fallback={<div class="dashboard-empty"><p role="alert">{listError()}</p><button class="btn ghost" type="button" onClick={() => void loadSessions()}>重新读取</button></div>}>
-                <Show when={visibleSessions().length > 0} fallback={<div class="dashboard-empty"><h3>{query().trim() ? '没有找到相关会话' : '这个模块还没有会话'}</h3><p>{query().trim() ? '换一个关键词试试。' : '新建会话，开始一次数学探索。'}</p></div>}>
+                <Show when={visibleSessions().length > 0} fallback={<div class="dashboard-empty"><h3>{query().trim() ? '没有找到相关会话' : '这个模块还没有会话'}</h3><p>{query().trim() ? `当前只搜索${modeDefinition(mode()).label}会话。` : '新建会话，开始一次数学探索。'}</p></div>}>
                   <ul class="session-list" role="list">
                     <For each={visibleSessions()}>{(item) => {
                       const name = () => item.name || '未命名会话'
@@ -288,7 +294,14 @@ export function Dashboard() {
           <section class="dashboard-panel dashboard-usage" aria-labelledby="dashboard-usage">
             <h2 id="dashboard-usage">近 7 天请求</h2>
             <p class="dashboard-caption">按北京时间统计模型请求次数</p>
-            <Show when={summary()} fallback={<p class="dashboard-empty dashboard-trend-state" role={usageError() ? 'alert' : 'status'}>{usageError() || '正在读取用量…'}</p>}>
+            <Show when={summary()} fallback={
+              <div class="dashboard-empty dashboard-trend-state">
+                <Show when={usageError()} fallback={<p role="status">正在读取用量…</p>}>
+                  <p role="alert">{usageError()}</p>
+                  <button class="btn ghost" type="button" onClick={() => void loadUsage()}>重试用量</button>
+                </Show>
+              </div>
+            }>
               {(usage) => <UsageTrend usage={usage()} />}
             </Show>
           </section>

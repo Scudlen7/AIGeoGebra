@@ -138,6 +138,32 @@ test('password recovery preserves the original private settings destination', as
   await expect(page.getByRole('heading', { name: '账户安全' })).toBeVisible()
 })
 
+test('invalid config preserves the private destination and can be retried in place', async ({ page }) => {
+  await mockServices(page)
+  let requests = 0
+  const loopbackRequests = []
+  page.on('request', request => {
+    if (request.url().startsWith('http://127.0.0.1:8090/')) loopbackRequests.push(request.url())
+  })
+  await page.route('**/api/config', route => {
+    requests++
+    if (requests === 1) return route.fulfill({ contentType: 'text/html', body: '<html></html>' })
+    if (requests === 2) return route.fulfill({ status: 502, json: { pbUrl: '/pb' } })
+    return route.fallback()
+  })
+  await page.goto('/workspace?session=geometry-b')
+  await expect(page.getByRole('heading', { name: '账户服务暂不可用' })).toBeVisible()
+  const retry = page.getByRole('button', { name: '重试' })
+  await retry.click()
+  await expect(retry).toBeEnabled()
+  await retry.click()
+  await expect(page).toHaveURL(/\/login\?redirect=/)
+  await signIn(page)
+  await expect(page).toHaveURL(/session=geometry-b$/)
+  await expect(page.locator('.transcript')).toContainText('几何乙的问题')
+  expect(loopbackRequests).toEqual([])
+})
+
 test('workbench groups history and restores the selected drawing through a failed save and reload', async ({ page }) => {
   const state = await mockServices(page)
   await page.goto('/login')
@@ -245,12 +271,17 @@ test('dashboard shows usage and a compact paginated history with session actions
   await expect(rows).toHaveCount(0)
   await expect(metrics.filter({ hasText: '云端会话' }).locator('strong')).toHaveText('8')
 
-  await page.route('http://pb.test/api/usage/summary', route => route.fulfill({ status: 503, json: { message: '用量暂不可用' } }))
+  await page.route('http://pb.test/api/usage/summary', route => route.fulfill({ status: 503, json: { message: '用量暂不可用' } }), { times: 1 })
   await page.reload()
   await expect(chart.getByRole('alert')).toHaveText('用量暂不可用')
   await expect(metrics.filter({ hasText: '累计请求数' }).locator('strong')).toHaveText('—')
   await expect(metrics.filter({ hasText: '云端会话' }).locator('strong')).toHaveText('8')
   await expect(rows.first()).toContainText('几何甲')
+  await history.getByRole('searchbox', { name: '搜索会话' }).fill('空间题')
+  await expect(history.getByText('当前只搜索几何会话。')).toBeVisible()
+  await chart.getByRole('button', { name: '重试用量' }).click()
+  await expect(metrics.filter({ hasText: '累计请求数' }).locator('strong')).toHaveText('15')
+  await expect(history.getByRole('searchbox', { name: '搜索会话' })).toHaveValue('空间题')
 })
 
 async function openGeometrySession(page) {
@@ -368,6 +399,30 @@ test('mobile navigation offers history and new sessions for the signed-in user',
   expect(state.records.find(item => item.id === 'new-session')).toBeUndefined()
 })
 
+test('scientific history restores its angle unit in a separate browser context', async ({ page, browser }) => {
+  const state = await mockServices(page)
+  await page.goto('/workspace?session=calculator-a')
+  await signIn(page)
+  const degrees = page.getByRole('button', { name: '角度', exact: true })
+  await expect(degrees).toBeEnabled()
+  await degrees.click()
+  await expect.poll(() => state.records.find(item => item.id === 'calculator-a').angleUnit).toBe('radian')
+
+  const other = await browser.newContext({ baseURL: new URL(page.url()).origin })
+  try {
+    const newPage = await other.newPage()
+    await mockServices(newPage)
+    await newPage.route('http://pb.test/api/collections/sessions/records/calculator-a', route =>
+      route.fulfill({ json: state.records.find(item => item.id === 'calculator-a') }))
+    await newPage.goto('/workspace?session=calculator-a')
+    await signIn(newPage)
+    await expect(newPage.locator('.conversation')).toContainText('当前单位为弧度')
+    await expect(newPage.getByRole('button', { name: '弧度', exact: true })).toBeVisible()
+  } finally {
+    await other.close()
+  }
+})
+
 async function replyWithText(page) {
   await page.route('**/llm/chat/completions', route => route.fulfill({ contentType: 'text/event-stream', body:
     'data: ' + JSON.stringify({ id: 'reply', created: 1, model: 'test', choices: [{ index: 0, delta: { content: '请确认需要标注哪些顶点。' }, finish_reason: null }] }) + '\n\n' +
@@ -395,16 +450,44 @@ test('new drafts stay out of history until the first message, then save once wit
   await page.reload()
   await expect(prompt).toHaveValue('帮我画一个平行四边形')
   await expect(prompt).toBeEnabled()
+  const mounts = await page.evaluate(() => window.boardMounts)
   await prompt.press('Enter')
   await expect(page).toHaveURL(/session=new-session$/)
+  expect(await page.evaluate(() => window.boardMounts)).toBe(mounts)
   expect(state.records).toHaveLength(6)
   expect(state.records[5]).toMatchObject({ name: '平行四边形', mode: 'geometry' })
   expect(state.records[5].messages).toHaveLength(2)
   await expect(sidebar.getByRole('link', { name: '平行四边形', exact: true })).toBeVisible()
+  await prompt.fill('请标注四个顶点')
+  await prompt.press('Enter')
+  await expect.poll(() => state.records[5].messages.length).toBe(4)
   await page.reload()
   await expect(page.locator('.transcript')).toContainText('帮我画一个平行四边形')
+  await expect(page.locator('.transcript')).toContainText('请标注四个顶点')
   expect(state.records).toHaveLength(6)
 })
+
+for (const width of [320, 390]) {
+  test(`the conversation recovers a failed board and preserves the prompt at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await mockServices(page)
+    await replyWithText(page)
+    await page.route('**/deployggb.js', route => route.abort(), { times: 1 })
+    await page.goto('/try')
+    const conversation = page.locator('.conversation')
+    const prompt = conversation.getByLabel('描述你的问题')
+    const retry = conversation.getByRole('button', { name: '重新加载画板' })
+    await expect(retry).toBeVisible()
+    await prompt.fill('画一个三角形')
+    const send = conversation.locator('button[type=submit]')
+    await expect(send).toBeDisabled()
+    await retry.click()
+    await expect(send).toBeEnabled()
+    await expect(prompt).toHaveValue('画一个三角形')
+    await send.click()
+    await expect(conversation.locator('.transcript')).toContainText('请确认需要标注哪些顶点。')
+  })
+}
 
 test('an explicitly named draft keeps its name on the first save', async ({ page }) => {
   const state = await mockServices(page)
