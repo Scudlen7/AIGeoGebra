@@ -69,6 +69,8 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
   })
   let host: HTMLDivElement | undefined
   let inputEl: HTMLTextAreaElement | undefined
+  let clearDialog!: HTMLDialogElement
+  let recoverAfterClear = false
   let controller: AbortController | undefined
   let copyTimer: number | undefined
   let loadGeneration = 0
@@ -488,7 +490,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
     unmountBoard()
   })
 
-  async function clearConstruction() {
+  function clearConstruction() {
     const id = activeMode()
     turnGeneration += 1
     controller?.abort()
@@ -507,6 +509,20 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
     setRunning(false)
     captureWorkspace()
     void syncCloud(id)
+  }
+
+  function requestClear(recover = false) {
+    recoverAfterClear = recover
+    clearDialog.showModal()
+  }
+
+  async function confirmClear() {
+    clearDialog.close()
+    const id = activeMode()
+    const recover = recoverAfterClear
+    if (recover) setBoardReady(true)
+    clearConstruction()
+    if (recover) await loadBoard(id)
   }
 
   async function copyCommand(command: string) {
@@ -587,7 +603,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (event.key === 'Enter' && !event.isComposing && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault()
       void submit()
     }
@@ -595,30 +611,19 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
 
   return (
     <div class="shell" data-mode={activeMode()}>
-      <AccountBar workbenchMode={activeMode()} sessionId={activeSession().id} />
-      <header class="workspace-head">
+      <AccountBar workbenchMode={activeMode()} sessionId={activeSession().id}>
+      <div class="workspace-head">
         <div class="workspace-identity">
-          <p class="eyebrow">{current().eyebrow}</p>
-          <h1>{current().title}</h1>
-          <Show when={loggedIn()}>
-            <p class="session-name">当前会话 {shownName()}</p>
+          <Show when={loggedIn()} fallback={<h1>{current().title}</h1>}>
+            <h1 class="session-name" title={shownName()}><span class="visually-hidden">当前会话 </span>{shownName()}</h1>
           </Show>
-          <Show when={loggedIn() || syncNote().text}>
+          <Show when={syncNote().text}>
             <p class="sync-note" title={syncNote().text} classList={{ ok: syncNote().ok, bad: !syncNote().ok }}>{syncNote().text}</p>
           </Show>
           <Show when={loggedIn() && pendingModes()[activeMode()] && retryModes()[activeMode()]}>
             <button class="btn ghost" type="button" disabled={running() || syncing()} onClick={() => { captureWorkspace(); void syncCloud() }}>
               {syncing() ? '同步中…' : '重试同步'}
             </button>
-          </Show>
-        </div>
-        <p class="lede">{current().lede}</p>
-        <div class="model-slot">
-          <Show when={loggedIn() && models().length > 0} fallback={
-            <p class="meta">{loadingModels() ? '正在读取模型…' : requestModel() ? `当前模型 ${requestModel()?.label}` : '模型未配置'}</p>
-          }>
-            <ModelPicker models={models()} selected={requestModel()} disabled={running() || savingModel()}
-              saving={savingModel()} onSelect={(id) => void chooseModel(id)} />
           </Show>
         </div>
         <nav class="modes" aria-label={props.onModeChange ? '会话模块' : '计算器模式'}>
@@ -637,7 +642,8 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
             )}
           </For>
         </nav>
-      </header>
+      </div>
+      </AccountBar>
 
       <div class="mobile-work-tabs" aria-label="工作区视图">
         <button class="btn ghost" classList={{ active: mobileView() === 'chat' }} aria-pressed={mobileView() === 'chat'} onClick={() => setMobileView('chat')}><Icon name="chat-circle-text" />对话</button>
@@ -647,6 +653,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
         <section class="conversation">
           <div class="conversation-heading"><Icon name="chat-circle-text" />与数学助手对话</div>
           <div class="rule" />
+          <Show when={workspaceReady() && !activeSession().id && !activeSession().messages.length}>
           <details class="example-picker">
           <summary>试试示例问题</summary>
           <div class="examples">
@@ -663,13 +670,21 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
             </For>
           </div>
           </details>
+          </Show>
 
           <div class="transcript">
             <Show when={activeMode()} keyed>
               {(id) => (
                 <>
-                  <Show when={messagesFor(id).length === 0 && !draft()}>
-                    <div class="welcome"><Icon name="function" /><h2>今天，想探索什么？</h2><p class="lede">{modeDefinition(id).empty}</p><div class="examples"><button disabled={running() || !boardReady() || !canUseModel()} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div></div>
+                  <Show when={workspaceReady() && messagesFor(id).length === 0 && !draft()}>
+                    <div class="welcome">
+                      <Icon name="function" />
+                      <h2>今天，想探索什么？</h2>
+                      <Show when={!activeSession().id} fallback={<p class="lede">在下方输入问题，继续使用当前会话。</p>}>
+                        <p class="lede">{modeDefinition(id).empty}</p>
+                        <div class="examples"><button disabled={running() || !boardReady() || !canUseModel()} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div>
+                      </Show>
+                    </div>
                   </Show>
                   <For each={messagesFor(id)}>
                     {(message) => (
@@ -700,13 +715,13 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
             </Show>
           </div>
 
-          <form
+          <form class="composer"
             onSubmit={(event) => {
               event.preventDefault()
               void submit()
             }}
           >
-            <label class="composer-label" for="math-prompt">描述你的问题</label>
+            <label class="visually-hidden" for="math-prompt">描述你的问题</label>
             <Show when={workspaceReady() && activeMode() === 'scientific'}>
               <p class="meta">当前单位为{unit() === 'radian' ? '弧度' : '角度'}</p>
             </Show>
@@ -721,7 +736,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
             <textarea
               id="math-prompt"
               ref={inputEl}
-              rows={3}
+              rows={2}
               value={activeSession().input}
               placeholder={current().placeholder}
               aria-describedby={current().ready && !boardReady() ? 'composer-board-status' : undefined}
@@ -732,18 +747,25 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
               }}
               onKeyDown={onKeyDown}
             />
-            <div class="actions">
-              <span class="input-hint">Enter 发送 · Shift + Enter 换行</span>
-              <Show when={running()}><button type="button" class="ghost" onClick={() => { controller?.abort(); renderDraft.clear(); setDraft(''); setRunning(false) }}>停止</button></Show>
-              <button type="button" class="ghost" onClick={() => void clearConstruction()} disabled={current().ready && !boardReady()}>
-                清空
-              </button>
+            <div class="composer-actions">
+              <div class="model-slot">
+                <Show when={loggedIn() && models().length > 0} fallback={
+                  <p class="meta" title={requestModel()?.label}>{loadingModels() ? '正在读取模型…' : requestModel()?.label ?? '模型未配置'}</p>
+                }>
+                  <ModelPicker models={models()} selected={requestModel()} disabled={running() || savingModel()}
+                    saving={savingModel()} onSelect={(id) => void chooseModel(id)} />
+                </Show>
+              </div>
+              <Show when={running()} fallback={
               <button
-                type="submit"
+                type="submit" class="composer-send" aria-label={current().submitLabel} title="Enter 发送，Shift + Enter 换行"
                 disabled={running() || !boardReady() || !canUseModel() || !current().ready || !activeSession().input.trim()}
               >
-                {running() ? `${current().submitLabel}中…` : current().submitLabel}
+                <Icon name="arrow-right" />
               </button>
+              }>
+                <button type="button" class="ghost composer-stop" onClick={() => { controller?.abort(); renderDraft.clear(); setDraft(''); setRunning(false) }}>停止</button>
+              </Show>
             </div>
           </form>
         </section>
@@ -785,6 +807,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
             <button type="button" classList={{ active: showCommands() }} aria-pressed={showCommands()} onClick={() => setShowCommands((value) => !value)}>
               {showCommands() ? `隐藏${current().logLabel}` : `显示${current().logLabel}`}
             </button>
+            <button type="button" class="board-clear" onClick={() => requestClear()} disabled={running() || !boardReady()}>清空</button>
           </div>
           <div class="rule" />
           <div class="board-frame" ref={setFrame}>
@@ -796,10 +819,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
                 <Show when={boardError()}>
                   <button class="btn ghost" type="button" onClick={retryBoard}>重新加载</button>
                   <Show when={getApi()}>
-                    <button class="btn ghost" type="button" onClick={() => {
-                      setBoardReady(true)
-                      void clearConstruction().then(() => loadBoard(activeMode()))
-                    }}>清空并重新开始</button>
+                    <button class="btn ghost" type="button" onClick={() => requestClear(true)}>清空并重新开始</button>
                   </Show>
                 </Show>
               </div>
@@ -856,6 +876,14 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
           </Show>
         </section>
       </main>
+      <dialog class="dashboard-dialog" ref={clearDialog} aria-labelledby="clear-workspace-title" aria-describedby="clear-workspace-description">
+        <h2 id="clear-workspace-title">清空当前会话？</h2>
+        <p id="clear-workspace-description" class="dialog-copy">这会删除当前会话的对话、草稿和画板内容，且无法撤销。{loggedIn() && activeSession().id ? '清空后会同步到云端。' : ''}</p>
+        <div class="dashboard-dialog-actions">
+          <button class="btn ghost" type="button" autofocus onClick={() => clearDialog.close()}>取消</button>
+          <button class="btn danger" type="button" onClick={() => void confirmClear()}>确认清空</button>
+        </div>
+      </dialog>
       <footer class="workspace-footer"><span>{loggedIn() ? (activeSession().id ? '登录会话 · 自动保存到云端' : '本机草稿 · 发送消息后保存到云端') : '访客模式 · 会话保存在本机'}</span><span>四种模式，分别探索</span></footer>
     </div>
   )

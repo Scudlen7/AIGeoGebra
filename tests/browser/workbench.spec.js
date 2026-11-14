@@ -5,7 +5,13 @@ const token = `x.${Buffer.from(JSON.stringify({ exp: 4102444800 })).toString('ba
 const auth = { token, record: owner }
 const xml = (label) => `<geogebra><construction><element label="${label}"/></construction></geogebra>`
 
-async function mockServices(page) {
+async function mockServices(page, { showUsageReminder = false } = {}) {
+  if (!showUsageReminder) {
+    await page.addInitScript((id) => {
+      const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format()
+      localStorage.setItem(`aiggb.usage-reminder.${id}`, date)
+    }, owner.id)
+  }
   const records = [
     ['geometry-a', '几何甲', 'geometry', 'A'],
     ['geometry-b', '几何乙', 'geometry', 'B'],
@@ -62,6 +68,7 @@ async function mockServices(page) {
         window.editBoard = xml => { window.boardXml = xml; notify?.() }
         this.options.appletOnLoad({
           setErrorDialogsActive() {}, setSize(width) { window.boardWidth = width }, setAxesVisible() {}, setGridVisible() {},
+          reset() { window.boardXml = '<geogebra><construction/></geogebra>' },
           getAllObjectNames() { return [] }, getXML() { return window.boardXml },
           setXML(xml) { window.boardXml = xml }, registerUpdateListener(listener) { notify = listener },
           unregisterUpdateListener() { notify = undefined },
@@ -77,6 +84,26 @@ async function signIn(page) {
   await page.getByLabel('密码', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: '登录', exact: true }).click()
 }
+
+test('dashboard reminds users about trial limits until they dismiss it for today', async ({ page }) => {
+  await mockServices(page, { showUsageReminder: true })
+  await page.goto('/login')
+  await signIn(page)
+  const reminder = page.getByRole('dialog', { name: '试用额度提醒' })
+  await expect(reminder).toBeVisible()
+  await expect(reminder.getByRole('link', { name: '前往模型偏好' })).toHaveAttribute('href', '/settings/models')
+  await reminder.getByRole('button', { name: '关闭' }).click()
+  await page.reload()
+  await expect(reminder).toBeVisible()
+  await reminder.getByLabel('今日不再提醒').check()
+  await reminder.getByRole('button', { name: '关闭' }).click()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()
+  await expect(reminder).toBeHidden()
+  await page.evaluate(id => localStorage.setItem(`aiggb.usage-reminder.${id}`, '2000-01-01'), owner.id)
+  await page.reload()
+  await expect(reminder).toBeVisible()
+})
 
 test('homepage and trial are public; a legacy history link requires login and opens the same session', async ({ page }) => {
   await mockServices(page)
@@ -443,6 +470,9 @@ test('new drafts stay out of history until the first message, then save once wit
   }
   expect(state.records).toHaveLength(5)
   const prompt = page.getByLabel('描述你的问题')
+  const examples = page.getByText('试试示例问题', { exact: true })
+  await expect(examples).toBeVisible()
+  await expect(page.locator('.conversation form').getByRole('button', { name: /^当前模型/ })).toBeVisible()
   await prompt.fill('帮我画一个平行四边形')
   await page.waitForTimeout(1000) // Exercise the debounced autosave of an unsent draft.
   expect(state.records).toHaveLength(5)
@@ -452,6 +482,7 @@ test('new drafts stay out of history until the first message, then save once wit
   await expect(prompt).toBeEnabled()
   const mounts = await page.evaluate(() => window.boardMounts)
   await prompt.press('Enter')
+  await expect(examples).toBeHidden()
   await expect(page).toHaveURL(/session=new-session$/)
   expect(await page.evaluate(() => window.boardMounts)).toBe(mounts)
   expect(state.records).toHaveLength(6)
@@ -465,6 +496,28 @@ test('new drafts stay out of history until the first message, then save once wit
   await expect(page.locator('.transcript')).toContainText('帮我画一个平行四边形')
   await expect(page.locator('.transcript')).toContainText('请标注四个顶点')
   expect(state.records).toHaveLength(6)
+})
+
+test('clearing from the board requires confirmation before it removes saved content', async ({ page }) => {
+  const state = await mockServices(page)
+  await openGeometrySession(page)
+  const transcript = page.locator('.transcript')
+  const clear = page.locator('.stage-tools').getByRole('button', { name: '清空', exact: true })
+  const dialog = page.getByRole('dialog', { name: '清空当前会话？' })
+  await clear.click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(clear).toBeFocused()
+  await expect(transcript).toContainText('几何甲的问题')
+  expect(await page.evaluate(() => window.boardXml)).toBe(xml('A'))
+  await clear.click()
+  await dialog.getByRole('button', { name: '确认清空' }).click()
+  await expect(transcript).not.toContainText('几何甲的问题')
+  await expect.poll(() => state.records[0].messages).toEqual([])
+  expect(await page.evaluate(() => window.boardXml)).toBe('<geogebra><construction/></geogebra>')
+  await expect(page.getByText('试试示例问题')).toBeHidden()
+  await page.reload()
+  await expect(transcript).not.toContainText('几何甲的问题')
 })
 
 for (const width of [320, 390]) {

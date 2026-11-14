@@ -14,6 +14,7 @@ type SessionRecord = RecordModel & { name: string; mode: CalculatorMode }
 const pageSize = 5
 const countFormat = new Intl.NumberFormat('zh-CN')
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short', hourCycle: 'h23' })
+const reminderDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' })
 
 function sessionTime(record: SessionRecord) {
   const value = record.updated || record.created
@@ -79,6 +80,9 @@ export function Dashboard() {
   const [creating, setCreating] = createSignal(false)
   const [createError, setCreateError] = createSignal('')
   let createDialog!: HTMLDialogElement
+  let reminderDialog!: HTMLDialogElement
+  let muteReminder!: HTMLInputElement
+  const reminderKey = `aiggb.usage-reminder.${authUser()?.id}`
   let disposed = false
 
   const mode = () => isCalculatorMode(params.mode) ? params.mode : 'geometry'
@@ -122,8 +126,19 @@ export function Dashboard() {
   onMount(() => {
     void loadSessions()
     void loadUsage()
+    try {
+      if (localStorage.getItem(reminderKey) === reminderDate.format()) return
+    } catch { /* The reminder still works without storage. */ }
+    reminderDialog.showModal()
   })
   onCleanup(() => { disposed = true })
+
+  function rememberUsageReminder() {
+    if (!muteReminder.checked) return
+    try {
+      localStorage.setItem(reminderKey, reminderDate.format())
+    } catch { /* Closing the dialog still works without storage. */ }
+  }
 
   function showCreateDialog() {
     setCreateMode(mode())
@@ -307,6 +322,16 @@ export function Dashboard() {
           </section>
         </div>
 
+        <dialog class="dashboard-dialog" ref={reminderDialog} aria-labelledby="usage-reminder-title"
+          aria-describedby="usage-reminder-description" onClose={rememberUsageReminder}>
+          <h2 id="usage-reminder-title">试用额度提醒</h2>
+          <p id="usage-reminder-description" class="dialog-copy">平台模型每天提供有限的试用额度。经常作图或连续解题时，建议提前在「模型偏好」添加自己的模型供应商，填写 API 地址和 API Key，再选为默认模型。个人模型的额度和费用由供应商决定。</p>
+          <label class="check"><input ref={muteReminder} type="checkbox" />今日不再提醒</label>
+          <div class="dashboard-dialog-actions">
+            <button class="btn ghost" type="button" autofocus onClick={() => reminderDialog.close()}>关闭</button>
+            <A class="btn" href="/settings/models" onClick={rememberUsageReminder}>前往模型偏好</A>
+          </div>
+        </dialog>
         <dialog class="dashboard-dialog" ref={createDialog} aria-labelledby="create-session-title" onCancel={(event) => {
           if (creating()) event.preventDefault()
         }}>

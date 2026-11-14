@@ -6,7 +6,7 @@ import { loadTs } from './load-ts.mjs'
 
 const emptyXml = '<geogebra><construction/></geogebra>'
 const mocks = {
-  './AccountBar': 'export const AccountBar = () => null',
+  './AccountBar': 'export const AccountBar = props => props.children',
   './markdown': 'export const renderMarkdown = text => text',
   'solid-transition-group': 'export const TransitionGroup = props => props.children',
   './pb': `
@@ -399,6 +399,7 @@ test('a failed legacy restore offers a clean restart and allows another request'
   state.replayResult = undefined
   const mounts = state.mounts.length
   button('清空并重新开始').click()
+  button('确认清空').click()
   await waitFor(() => state.mounts.length > mounts && !document.querySelector('#composer-board-status'))
   assert.equal(state.xml, emptyXml)
   assert.doesNotMatch(document.querySelector('.transcript').textContent, /legacy request/)

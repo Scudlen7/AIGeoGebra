@@ -348,6 +348,10 @@ for (const width of [1440, 768, 390, 320]) {
       await expect(page.locator('main')).toBeVisible()
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
       if (route === '/dashboard') {
+        const reminder = page.getByRole('dialog', { name: '试用额度提醒' })
+        await expect(reminder).toBeVisible()
+        expect(await reminder.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false)
+        await reminder.getByRole('button', { name: '关闭' }).click()
         await expect(page.locator('.session-list')).toContainText('三角形与高线')
         const main = page.getByRole('main')
         await expect(main.getByRole('listitem', { name: '2026-11-09，6 次请求' })).toBeVisible()

@@ -441,28 +441,45 @@ em {
 .mobile-navigation::backdrop {
   background:var(--surface)
 }
+.workspace-topbar {
+  height:auto;
+  min-height:60px;
+  padding-block:var(--s2);
+  margin-bottom:var(--s2)
+}
+.workspace-topbar .topbar-gap {
+  display:none
+}
+.workspace-topbar .icon-btn {
+  flex:none
+}
 .workspace-head {
-  display:grid;
-  grid-template-columns:minmax(0,1fr) auto minmax(120px,220px);
+  display:flex;
+  flex:1;
+  min-width:0;
   align-items:center;
-  gap:var(--s4);
-  padding:var(--s2) 0 var(--s4);
-  flex:none;
-  min-height:96px
+  justify-content:space-between;
+  gap:var(--s3)
 }
 .workspace-identity {
   min-width:0;
-  position:relative
+  min-height:38px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center
 }
 .workspace-head h1 {
-  font-size:24px;
-  line-height:32px;
+  font-size:17px;
+  line-height:22px;
+  overflow:hidden;
+  text-overflow:ellipsis;
   white-space:nowrap
 }
-.workspace-head .eyebrow,.workspace-head>.lede {
-  display:none
+.workspace-identity h1 {
+  max-width:100%
 }
-.session-name,.sync-note {
+.sync-note {
   font-size:12px;
   line-height:16px;
   height:16px;
@@ -478,20 +495,26 @@ em {
   color:var(--error)
 }
 .workspace-identity>.btn {
-  position:absolute;
-  right:0;
-  top:100%;
-  z-index:4;
   font-size:12px;
-  min-height:32px
+  min-height:28px;
+  padding-block:2px
+}
+.visually-hidden {
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  overflow:hidden;
+  clip-path:inset(50%);
+  white-space:nowrap
 }
 .model-slot {
-  grid-column:3;
-  grid-row:1;
   min-width:0
 }
 .model-slot>.meta {
-  overflow-wrap:anywhere
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap
 }
 .model-switch {
   position:relative;
@@ -595,8 +618,6 @@ em {
   text-align:center
 }
 .modes {
-  grid-column:2;
-  grid-row:1;
   display:flex;
   gap:var(--s1);
   background:var(--soft);
@@ -608,7 +629,7 @@ em {
   background:transparent;
   color:var(--muted);
   padding:var(--s2) var(--s3);
-  min-height:44px;
+  min-height:36px;
   border-radius:var(--r1);
   font-size:14px;
   white-space:nowrap
@@ -638,7 +659,7 @@ em {
   display:flex;
   align-items:center;
   gap:var(--s3);
-  padding:var(--s4) var(--s6);
+  padding:var(--s3) var(--s4);
   font-size:14px;
   font-weight:500
 }
@@ -750,45 +771,78 @@ em {
   overflow:auto hidden;
   max-width:100%
 }
-.conversation form {
+.composer {
   margin:var(--s4);
   padding:var(--s3);
-  border:1px solid var(--muted);
-  border-radius:var(--r2);
+  border:1px solid var(--border);
+  border-radius:20px;
+  background:var(--surface);
+  box-shadow:0 2px 8px rgba(0,0,0,.04);
   flex:none
 }
-.conversation form:focus-within {
-  border-color:var(--accent)
-}
-.composer-label {
-  font-size:12px;
-  color:var(--muted)
+.composer:focus-within {
+  border-color:var(--accent);
+  box-shadow:0 0 0 2px var(--soft)
 }
 .conversation textarea {
+  display:block;
   width:100%;
-  min-height:72px;
-  max-height:160px;
-  resize:vertical;
+  min-height:48px;
+  max-height:min(140px,25dvh);
+  field-sizing:content;
+  resize:none;
   background:transparent;
   border:0;
-  padding:var(--s2) 0;
+  padding:var(--s1) var(--s1) var(--s2);
   font-size:14px;
   line-height:24px
 }
 .conversation textarea:focus-visible {
-  outline-offset:0
+  outline:none
 }
-.actions {
+.composer-actions {
   display:flex;
-  justify-content:flex-end;
+  justify-content:space-between;
   align-items:center;
   gap:var(--s2);
   margin-top:var(--s2)
 }
-.input-hint {
-  margin-right:auto;
+.composer .model-switch>span {
+  display:none
+}
+.composer .model-switch-trigger {
+  min-height:36px;
+  border:0;
+  border-radius:999px;
+  background:var(--soft);
+  color:var(--text);
   font-size:12px;
-  color:var(--muted)
+  white-space:nowrap
+}
+.composer .model-switch-trigger .icon {
+  flex:none
+}
+.composer .model-picker-panel {
+  top:auto;
+  bottom:calc(100% + var(--s2));
+  left:0;
+  right:auto;
+  width:min(300px,var(--chat-width) - 2 * var(--s6))
+}
+.composer .model-picker-list {
+  max-height:min(260px,32dvh)
+}
+.composer .composer-send,.composer .composer-stop {
+  flex:none;
+  border-radius:999px
+}
+.composer .composer-send {
+  width:40px;
+  min-height:40px;
+  padding:0
+}
+.composer-send .icon {
+  transform:rotate(-90deg)
 }
 .stage-tools {
   display:flex;
@@ -811,6 +865,9 @@ em {
 .stage-tools button.active {
   background:var(--soft);
   color:var(--accent)
+}
+.stage-tools .board-clear {
+  color:var(--error)
 }
 .board-frame {
   flex:1;
@@ -1270,6 +1327,14 @@ em {
 }
 .dashboard-dialog .stack-form {
   margin-top:var(--s4)
+}
+.dashboard-dialog .dialog-copy {
+  margin:var(--s3) 0 var(--s4);
+  line-height:1.65;
+  color:var(--muted)
+}
+.dashboard-dialog .check {
+  margin-bottom:var(--s4)
 }
 input,select {
   border:1px solid var(--muted);
@@ -1898,10 +1963,6 @@ label {
   .shell {
     --chat-width:310px
   }
-  .workspace-head {
-    grid-template-columns:minmax(0,1fr) auto minmax(100px,180px);
-    gap:var(--s3)
-  }
   .modes button {
     padding:var(--s2)
   }
@@ -1957,33 +2018,37 @@ label {
   .breadcrumb {
     display:none
   }
-  .workspace-head {
-    grid-template-columns:minmax(0,1fr) minmax(0,150px);
+  .workspace-topbar {
+    position:relative;
+    height:auto;
     min-height:0;
-    padding:0 0 var(--s3);
+    padding-bottom:48px;
     gap:var(--s2)
   }
   .workspace-head h1 {
-    font-size:20px;
-    line-height:28px
+    font-size:15px;
+    line-height:20px
   }
   .workspace-head .modes {
-    grid-column:1/-1;
-    grid-row:2;
-    justify-content:space-between
+    position:absolute;
+    inset:auto 0 0
   }
   .modes button {
     flex:1
   }
-  .workspace-head .model-slot {
-    grid-column:2;
-    grid-row:1
+  .workspace-topbar .user-menu>.btn {
+    max-width:96px;
+    white-space:nowrap
+  }
+  .workspace-topbar .auth-links {
+    gap:var(--s2);
+    white-space:nowrap
+  }
+  .composer .model-picker-panel {
+    width:min(300px,100vw - 2 * var(--s8))
   }
   .model-picker-panel input {
     font-size:16px
-  }
-  .session-name,.sync-note {
-    font-size:12px
   }
   .mobile-work-tabs {
     display:flex;
@@ -2021,11 +2086,8 @@ label {
   .conversation-heading {
     padding:var(--s3) var(--s4)
   }
-  .conversation form {
+  .composer {
     margin:var(--s3)
-  }
-  .input-hint {
-    font-size:12px
   }
   .workspace-footer {
     font-size:12px
@@ -2120,12 +2182,6 @@ label {
     padding-left:var(--s2);
     padding-right:var(--s2)
   }
-  .workspace-head {
-    grid-template-columns:minmax(0,1fr) 120px
-  }
-  .workspace-head h1 {
-    font-size:18px
-  }
   .auth-links>.btn {
     padding:var(--s2)
   }
@@ -2134,9 +2190,6 @@ label {
   }
   .topbar {
     gap:var(--s2)
-  }
-  .input-hint {
-    display:none
   }
   .code-row {
     flex-wrap:wrap
