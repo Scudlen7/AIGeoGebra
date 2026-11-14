@@ -1,5 +1,5 @@
 import { A, useLocation, useNavigate } from '@solidjs/router'
-import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
+import { Show, createEffect, createSignal, onCleanup, onMount, type ParentProps } from 'solid-js'
 import { authUser, loggedIn, pb } from './pb'
 import { Icon } from './Icon'
 import { SessionSidebar } from './SessionSidebar'
@@ -13,7 +13,7 @@ function sidebarStartsCollapsed() {
   return window.matchMedia('(min-width: 861px) and (max-width: 1200px)').matches
 }
 
-export function AccountBar(props: { workbenchMode?: CalculatorMode; sessionId?: string | null }) {
+export function AccountBar(props: ParentProps<{ workbenchMode?: CalculatorMode; sessionId?: string | null }>) {
   const navigate = useNavigate()
   const location = useLocation()
   const mobileLayout = window.matchMedia('(max-width: 860px)')
@@ -82,11 +82,13 @@ export function AccountBar(props: { workbenchMode?: CalculatorMode; sessionId?: 
       </Show>
       <div class="legal-links"><A href="/privacy" onClick={close}>隐私政策</A><A href="/terms" onClick={close}>用户协议</A></div>
     </dialog>
-    <header class="topbar">
+    <header class="topbar" classList={{ 'workspace-topbar': Boolean(props.workbenchMode) }}>
       <button class="icon-btn sidebar-toggle" type="button" aria-controls="desktop-sidebar" aria-expanded={!collapsed()}
         aria-label={collapsed() ? '展开侧栏' : '折叠侧栏'} title={collapsed() ? '展开侧栏' : '折叠侧栏'} onClick={toggleSidebar}><Icon name="sidebar" /></button>
       <button ref={trigger} class="icon-btn mobile-menu" type="button" aria-controls="mobile-sidebar" aria-expanded={drawerOpen()} aria-label="打开导航" onClick={openDrawer}><Icon name="list" /></button>
-      <span class="breadcrumb">数学探索 / {location.pathname === '/try' ? '游客试用' : location.pathname === '/workspace' ? '作图工作区' : location.pathname === '/dashboard' ? '工作台' : /^\/settings(?:\/|$)/.test(location.pathname) ? '设置' : '账户'}</span>
+      <Show when={props.workbenchMode} fallback={<span class="breadcrumb">数学探索 / {location.pathname === '/dashboard' ? '工作台' : /^\/settings(?:\/|$)/.test(location.pathname) ? '设置' : '账户'}</span>}>
+        {props.children}
+      </Show>
       <div class="topbar-gap" />
       <button class="icon-btn" aria-label={dark() ? '切换浅色' : '切换深色'} onClick={toggleTheme}><Icon name={dark() ? 'sun' : 'moon'} /></button>
       <Show when={loggedIn()} fallback={<div class="auth-links"><A href="/login">登录</A><A class="btn ghost" href="/register">创建账户 <Icon name="arrow-right" /></A></div>}>

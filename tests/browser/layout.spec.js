@@ -25,15 +25,11 @@ for (const width of [1440, 1024, 390, 320]) {
     await expect(page.locator('textarea')).toBeEnabled()
     await expect(page.locator('.session-name')).toBeVisible()
     if (width === 1440) await expect(page.locator('.sidebar-history a')).toBeVisible()
-    const geometry = await page.locator('.workspace-head').evaluate(el => {
-      const title = el.querySelector('h1').getBoundingClientRect()
-      const model = el.querySelector('.model-slot').getBoundingClientRect()
-      return { height: el.getBoundingClientRect().height, overlap: title.right > model.left && title.bottom > model.top, overflow: document.documentElement.scrollWidth > innerWidth }
-    })
-    expect(geometry.overflow).toBe(false)
-    expect(geometry.overlap).toBe(false)
-    expect(geometry.height).toBeLessThan(width > 860 ? 110 : 180)
-    const height = await page.locator('.workspace-head').evaluate(el => el.getBoundingClientRect().height)
+    await expect(page.locator('.composer').getByRole('button', { name: /^当前模型/ })).toBeVisible()
+    const topbar = page.locator('.workspace-topbar')
+    const height = (await topbar.boundingBox()).height
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+    expect(height).toBeLessThan(width > 860 ? 76 : 118)
     await page.evaluate(() => {
       window.retryAppeared = false
       new MutationObserver(() => {
@@ -43,7 +39,7 @@ for (const width of [1440, 1024, 390, 320]) {
     await page.locator('textarea').fill('编辑中的草稿')
     await expect(page.getByRole('button', { name: '重试同步' })).toHaveCount(0)
     await expect(page.getByText('已同步到云端', { exact: true })).toBeVisible()
-    expect(await page.locator('.workspace-head').evaluate(el => el.getBoundingClientRect().height)).toBe(height)
+    expect((await topbar.boundingBox()).height).toBe(height)
     expect(await page.evaluate(() => window.retryAppeared)).toBe(false)
     await page.screenshot({ path: `test-results/workspace-${width}.png` })
     failSave = true
