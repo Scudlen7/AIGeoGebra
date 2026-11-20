@@ -162,6 +162,18 @@ test('real PocketBase account, email, session and usage integration', { timeout:
     assert.equal((await api(path, { token: alice.token })).data.angleUnit, 'radian')
     assert.equal((await api(path, { method: 'DELETE', token: alice.token })).status, 204)
   })
+  await t.test('graphing and CAS sessions retain their mode and board snapshot', async () => {
+    const basePath = '/api/collections/sessions/records'
+    const boardXml = '<geogebra><construction/></geogebra>'
+    for (const mode of ['graphing', 'cas']) {
+      const created = await post(basePath, { owner: alice.record.id, name: mode, mode, report: { boardXml } }, alice.token)
+      assert.equal(created.status, 200, JSON.stringify(created.data))
+      const loaded = await api(`${basePath}/${created.data.id}`, { token: alice.token })
+      assert.equal(loaded.data.mode, mode)
+      assert.equal(loaded.data.report.boardXml, boardXml)
+      assert.equal((await api(`${basePath}/${created.data.id}`, { method: 'DELETE', token: alice.token })).status, 204)
+    }
+  })
   await t.test('authenticated usage is recorded and summaries are scoped to the user', async () => {
     const env = { PB_URL: base, PB_SUPERUSER_EMAIL: 'admin@example.test', PB_SUPERUSER_PASSWORD: password }
     assert.deepEqual(await verifyUser(env, alice.token), { id: alice.record.id })

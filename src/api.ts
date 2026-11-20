@@ -1,3 +1,4 @@
+import { isCalculatorMode } from './modes'
 import { authUser, pb } from './pb'
 import type { PersonalConnection } from './providers'
 import type { AngleUnit, CalculatorMode, ChatTurn, ConstructionReport } from './types'
@@ -164,7 +165,7 @@ function isReport(value: unknown): value is ConstructionReport {
 
 export function fromSessionRecord(record: Record<string, unknown>): CloudSession {
   const mode = record.mode
-  const safeMode: CalculatorMode = mode === '3d' || mode === 'probability' || mode === 'scientific' || mode === 'geometry' ? mode : 'geometry'
+  const safeMode = isCalculatorMode(mode) ? mode : 'geometry'
   return {
     id: String(record.id || ''),
     name: typeof record.name === 'string' ? record.name : '未命名会话',

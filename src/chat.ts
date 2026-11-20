@@ -72,7 +72,7 @@ export async function runTurn(options: {
                 ? '在科学计算器中按顺序执行赋值算式，例如 a = sin(30°)。遇到第一条失败会停止。修复时不要重复已成功的算式。'
                 : options.mode === 'probability'
                   ? '在概率计算器中按顺序执行分布命令，例如 p = Normal(0, 1, 1.96, true)。成功后分布菜单和曲线会一起更新。遇到第一条失败会停止。修复时不要重复已成功的命令。'
-                  : '在当前 GeoGebra 画板上按顺序执行英文命令。遇到第一条失败会停止。修复时不要重复已成功的命令。',
+                  : '在当前 GeoGebra 计算器中按顺序执行英文命令并返回结果。遇到第一条失败会停止。修复时不要重复已成功的命令。',
           inputSchema: z.object({
             commands: z
               .array(z.string().min(1))

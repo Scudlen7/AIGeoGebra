@@ -10,6 +10,8 @@ const modeIntro = {
   '3d': '画出空间图形，旋转观察点、线、面的位置关系。',
   probability: '计算分布和区间概率，在曲线上查看对应的范围。',
   scientific: '计算根式、对数和三角函数，查看算式与结果。',
+  graphing: '绘制函数和方程的图像，查看曲线与交点。',
+  cas: '精确求解方程，化简表达式、求导和积分。',
 }
 
 function Landing() {
@@ -60,7 +62,7 @@ function Landing() {
         </section>
 
         <section class="landing-modes" aria-labelledby="landing-modes-title">
-          <h2 id="landing-modes-title">四种数学工作区</h2>
+          <h2 id="landing-modes-title">数学工作区</h2>
           <div class="module-grid">
             <For each={modeList}>{(mode) => (
               <article class="module-card">

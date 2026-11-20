@@ -4,7 +4,7 @@ import { mathCases } from '../math-cases.mjs'
 
 const live = process.env.LIVE_LLM === '1'
 const enabled = live || process.env.LIVE_GEOGEBRA === '1'
-const labels = { geometry: '几何', '3d': '3D', probability: '概率', scientific: '计算器' }
+const labels = { geometry: '几何', '3d': '3D', probability: '概率', scientific: '计算器', graphing: '绘图', cas: 'CAS' }
 
 for (const mode of Object.keys(labels)) {
   test.describe(`${mode} real GeoGebra acceptance`, () => {
@@ -48,12 +48,24 @@ for (const mode of Object.keys(labels)) {
           const points = Object.fromEntries(Object.entries(fixture.points || {}).map(([name, coordinates]) => [name,
             [api.getXcoord(name), api.getYcoord(name), ...(coordinates.length === 3 ? [api.getZcoord(name)] : [])],
           ]))
-          return { id: fixture.id, mode: fixture.mode, model, error, reports, values, points }
+          let restoredValues = []
+          if (fixture.mode === 'cas' && !error && reports.length) {
+            const labels = reports.flatMap(report => report.results.flatMap(item => item.labels))
+            const xml = board.captureBoard()
+            board.resetBoard()
+            board.restoreBoard(xml)
+            restoredValues = labels.map(name => api.getValueString(name))
+          }
+          return { id: fixture.id, mode: fixture.mode, model, error, reports, values, points, restoredValues }
         }, { fixture, live, model })
         const final = result.reports.at(-1)
         let valid = !result.error && !!final && final.results.every(item => item.status === 'ok')
         for (const [name, expected] of Object.entries(fixture.values || {})) valid &&= Number.isFinite(result.values[name]) && Math.abs(result.values[name] - expected) < 1e-6
         for (const [name, expected] of Object.entries(fixture.points || {})) valid &&= expected.every((value, index) => Number.isFinite(result.points[name][index]) && Math.abs(result.points[name][index] - value) < 1e-6)
+        if (fixture.exact) {
+          const value = final?.results.find(item => fixture.exact.test(item.value))?.value
+          valid &&= !!value && result.restoredValues.some(restored => restored.endsWith(value))
+        }
         result.outcome = valid ? result.reports.length > 1 ? 'corrected' : 'first-pass' : 'failed'
         await mkdir('test-results', { recursive: true })
         await appendFile(`test-results/math-${live ? 'live' : 'reference'}.jsonl`, JSON.stringify(result) + '\n')
