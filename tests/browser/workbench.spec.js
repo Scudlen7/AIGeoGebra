@@ -23,10 +23,11 @@ async function mockServices(page, { showUsageReminder = false } = {}) {
     input: '', messages: [{ role: 'user', content: `${name}的问题` }],
     report: { boardXml: xml(label), objects: [], results: [], hint: '' },
   }))
-  const state = { records, failSave: '', usage: { requests: 0, tokens: 0, days: [], models: [] } }
+  const state = { records, providers: [], failSave: '', usage: { requests: 0, tokens: 0, days: [], models: [] } }
   await page.route('**/api/config', route => route.fulfill({ json: { pbUrl: 'http://pb.test' } }))
   await page.route('**/api/status', route => route.fulfill({ json: { configured: true, model: 'test' } }))
   await page.route('**/api/models', route => route.fulfill({ json: [{ id: 'test', label: '数学模型', gateway: false }] }))
+  await page.route('**/api/providers', route => route.fulfill({ json: state.providers }))
   await page.route('http://pb.test/**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -101,6 +102,28 @@ test('dashboard reminds users about trial limits until they dismiss it for today
   await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()
   await expect(reminder).toBeHidden()
   await page.evaluate(id => localStorage.setItem(`aiggb.usage-reminder.${id}`, '2000-01-01'), owner.id)
+  await page.reload()
+  await expect(reminder).toBeVisible()
+})
+
+test('dashboard skips the trial reminder for accounts with a provider and shows it after the last one is removed', async ({ page }) => {
+  const state = await mockServices(page, { showUsageReminder: true })
+  state.providers = [{
+    id: 'testprovider001', name: '个人供应商', baseUrl: 'https://provider.example/v1', protocol: 'openai',
+    models: [{ id: 'personal-model', label: '个人模型' }],
+  }]
+  await page.goto('/login')
+  await signIn(page)
+  const reminder = page.getByRole('dialog', { name: '试用额度提醒' })
+  await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()
+  await expect(reminder).toBeHidden()
+
+  const providersLoaded = page.waitForResponse(response => response.url().endsWith('/api/providers') && response.ok())
+  await page.reload()
+  await providersLoaded
+  await expect(reminder).toBeHidden()
+
+  state.providers = []
   await page.reload()
   await expect(reminder).toBeVisible()
 })

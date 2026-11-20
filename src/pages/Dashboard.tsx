@@ -6,6 +6,7 @@ import { Icon } from '../Icon'
 import { draftWorkspacePath, downloadJson, fetchSummary, readableError, sessionExport, workspacePath, type UsageSummary } from '../api'
 import { isCalculatorMode, modeDefinition, modeList } from '../modes'
 import { authUser, pb } from '../pb'
+import { fetchProviders } from '../providers'
 import { readPendingSession, writePendingCloud } from '../session'
 import type { CalculatorMode } from '../types'
 
@@ -82,7 +83,8 @@ export function Dashboard() {
   let createDialog!: HTMLDialogElement
   let reminderDialog!: HTMLDialogElement
   let muteReminder!: HTMLInputElement
-  const reminderKey = `aiggb.usage-reminder.${authUser()?.id}`
+  const reminderOwner = authUser()?.id
+  const reminderKey = `aiggb.usage-reminder.${reminderOwner}`
   let disposed = false
 
   const mode = () => isCalculatorMode(params.mode) ? params.mode : 'geometry'
@@ -123,13 +125,14 @@ export function Dashboard() {
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
     void loadSessions()
     void loadUsage()
     try {
       if (localStorage.getItem(reminderKey) === reminderDate.format()) return
     } catch { /* The reminder still works without storage. */ }
-    reminderDialog.showModal()
+    const providers = await fetchProviders().catch(() => undefined)
+    if (!disposed && authUser()?.id === reminderOwner && providers?.length === 0) reminderDialog.showModal()
   })
   onCleanup(() => { disposed = true })
 
