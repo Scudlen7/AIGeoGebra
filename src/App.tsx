@@ -31,6 +31,8 @@ function emptyCloudMap(): Record<CalculatorMode, CloudSession> {
     '3d': blankCloud('3d'),
     probability: blankCloud('probability'),
     scientific: blankCloud('scientific'),
+    graphing: blankCloud('graphing'),
+    cas: blankCloud('cas'),
   }
 }
 
@@ -581,7 +583,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
       requestController.signal.throwIfAborted()
       const finalMessages: ChatTurn[] = [
         ...history,
-        { role: 'assistant', content: answer || (id === 'scientific' || id === 'probability' ? '计算已完成。' : '作图已执行。') },
+        { role: 'assistant', content: answer || (id === 'scientific' || id === 'probability' || id === 'cas' ? '计算已完成。' : '作图已执行。') },
       ]
       patchWorkspace(id, { messages: finalMessages, input: '' })
       completed = true
@@ -884,7 +886,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
           <button class="btn danger" type="button" onClick={() => void confirmClear()}>确认清空</button>
         </div>
       </dialog>
-      <footer class="workspace-footer"><span>{loggedIn() ? (activeSession().id ? '登录会话 · 自动保存到云端' : '本机草稿 · 发送消息后保存到云端') : '访客模式 · 会话保存在本机'}</span><span>四种模式，分别探索</span></footer>
+      <footer class="workspace-footer"><span>{loggedIn() ? (activeSession().id ? '登录会话 · 自动保存到云端' : '本机草稿 · 发送消息后保存到云端') : '访客模式 · 会话保存在本机'}</span></footer>
     </div>
   )
 }

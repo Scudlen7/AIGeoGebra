@@ -68,7 +68,7 @@ async function mockServices(page, { showUsageReminder = false } = {}) {
         window.boardXml = '<geogebra><construction/></geogebra>'
         window.editBoard = xml => { window.boardXml = xml; notify?.() }
         this.options.appletOnLoad({
-          setErrorDialogsActive() {}, setSize(width) { window.boardWidth = width }, setAxesVisible() {}, setGridVisible() {},
+          setErrorDialogsActive() {}, evalCommandCAS() { return '2' }, setSize(width) { window.boardWidth = width }, setAxesVisible() {}, setGridVisible() {},
           reset() { window.boardXml = '<geogebra><construction/></geogebra>' },
           getAllObjectNames() { return [] }, getXML() { return window.boardXml },
           setXML(xml) { window.boardXml = xml }, registerUpdateListener(listener) { notify = listener },
@@ -126,6 +126,23 @@ test('dashboard skips the trial reminder for accounts with a provider and shows 
   state.providers = []
   await page.reload()
   await expect(reminder).toBeVisible()
+})
+
+test('graphing and CAS reopen their own workspaces from dashboard history', async ({ page }) => {
+  const state = await mockServices(page)
+  for (const mode of ['graphing', 'cas']) {
+    state.records.push({ ...state.records[0], id: mode, name: `${mode} 历史记录`, mode, report: { ...state.records[0].report, boardXml: xml(mode) } })
+  }
+  await page.goto('/login')
+  await signIn(page)
+  for (const [mode, label] of [['graphing', '绘图'], ['cas', 'CAS']]) {
+    await page.getByRole('navigation', { name: '会话模块' }).getByRole('button', { name: label, exact: true }).click()
+    await page.getByRole('link', { name: `打开 ${mode} 历史记录`, exact: true }).click()
+    await expect(page.getByRole('heading', { name: `当前会话 ${mode} 历史记录` })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => window.__aiggb?.appName())).toBe(mode)
+    await expect.poll(() => page.evaluate(() => window.boardXml)).toBe(xml(mode))
+    await page.goto('/dashboard')
+  }
 })
 
 test('homepage and trial are public; a legacy history link requires login and opens the same session', async ({ page }) => {

@@ -22,6 +22,31 @@ const sharedRules = `规则：
 
 export function systemPrompt(mode: CalculatorMode, objects: GgbObject[], angleUnit: AngleUnit = 'degree') {
   const listing = listingOf(objects)
+  if (mode === 'graphing') {
+    return `你是函数绘图助手。用 applyCommands 在绘图计算器里绘制二维函数、方程和不等式，并用中文说明图像特征。
+
+${sharedRules}
+- 函数用 f(x) = x^2；方程可以写成 g: y = 4；只有用户要求时才添加辅助对象或标注。
+- 用 Intersect(f, g) 标出两条曲线的交点。需要指定某个交点时可用 Intersect(f, g, 序号) 或给出附近的起始点。
+- 命令名和变量用英文。符号求解、因式分解等精确运算交给 CAS 模式。
+
+当前绘图计算器：
+${listing}`
+  }
+
+  if (mode === 'cas') {
+    return `你是 CAS 符号计算助手。用 applyCommands 执行精确计算，再根据工具返回的 value 用中文解释。公式用 $...$ 或 $$...$$。
+
+规则：
+- 只使用英文 GeoGebra 命令，每条命令一个字符串，结果使用未占用的名称，例如 sol = Solve(x^2 - 5*x + 6 = 0, x)。
+- 常用命令包括 Factor、Expand、Simplify、Solve、Derivative、Integral 和 Limit。按需显式指定变量或积分上下限。
+- 保留分数、根式和符号结果，只有用户要求近似值时才使用 Numeric。
+- 如果信息不足，先向用户确认。工具在第一条失败处停止，只重试失败和未执行的命令。不要把未定义或未执行的结果写成答案。
+
+当前 CAS 对象：
+${listing}`
+  }
+
   if (mode === '3d') {
     return `你是 3D 作图助手。用户用自然语言描述空间图形，你调用 applyCommands 在当前 3D 计算器里作图，并用中文解释空间关系。
 

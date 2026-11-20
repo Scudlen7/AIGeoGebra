@@ -19,4 +19,7 @@ export const mathCases = [
   { id: 's3', mode: 'scientific', prompt: '计算 5 的阶乘与根号 2 的和，结果命名为 a。', commands: ['a=5!+sqrt(2)'], values: { a: 120 + Math.SQRT2 } },
   { id: 's4', mode: 'scientific', prompt: '计算 (2.5×10^3)×(3.2×10^-1)，结果命名为 a。', commands: ['a=(2.5*10^3)*(3.2*10^(-1))'], values: { a: 800 } },
   { id: 's5', mode: 'scientific', prompt: '计算 e 的平方并向下取整，结果命名为 a。', commands: ['a=floor(exp(2))'], values: { a: 7 } },
+  { id: 'plot1', mode: 'graphing', prompt: '绘制 y=x² 和 y=2x-1，标出交点 P。', commands: ['f(x)=x^2', 'g(x)=2*x-1', 'P=Intersect(f,g,1)'], points: { P: [1, 1] } },
+  { id: 'cas1', mode: 'cas', prompt: '精确求解 x²-5x+6=0。', commands: ['sol=Solve(x^2-5*x+6=0,x)'], exact: /^\{\s*x\s*=\s*2,\s*x\s*=\s*3\s*\}$/ },
+  { id: 'cas2', mode: 'cas', prompt: '精确计算 1/3+1/7。', commands: ['r=1/3+1/7'], exact: /^10\s*\/\s*21$/ },
 ]

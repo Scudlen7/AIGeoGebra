@@ -6,6 +6,8 @@ type GgbListener = (...args: unknown[]) => void
 
 type GgbApi = {
   evalCommand: (command: string) => boolean
+  evalCommandCAS?: (command: string) => string
+  deleteObject?: (name: string) => void
   setErrorDialogsActive: (active: boolean) => void
   getAllObjectNames?: () => string[] | ArrayLike<string>
   getObjectNumber: () => number
@@ -218,10 +220,15 @@ export function mountBoard(host: HTMLElement, options: BoardOptions): Promise<vo
           language: 'zh',
           ...(options.perspective ? { perspective: options.perspective } : {}),
           scaleContainerClass: 'board-host',
-          appletOnLoad: (loaded: GgbApi) => {
+          appletOnLoad: function ready(loaded: GgbApi) {
             if (settled) return
             if (token !== mountToken) {
               finish(() => resolve())
+              return
+            }
+            // The CAS engine can load after the calculator itself.
+            if (options.appName === 'cas' && loaded.evalCommandCAS?.('1+1') !== '2') {
+              window.setTimeout(() => ready(loaded), 100)
               return
             }
             api = loaded
@@ -398,6 +405,7 @@ function diagnose(
     enforceAngle: options?.enforceAngle,
   })
   if (blocked) return blocked
+  if (mode === 'cas') return null
 
   const defined = command.match(/^\s*([A-Za-z][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s*[:=]/)?.[1]
   const withoutCommands = unquoted.replace(/[A-Za-z][A-Za-z0-9_]*\s*(?=\()/g, '')
@@ -415,7 +423,8 @@ function diagnose(
 function resultValue(name: string) {
   try {
     const raw = api?.getValueString(name) || ''
-    const value = raw.replace(new RegExp(`^${name}\\s*=\\s*`), '').trim()
+    const label = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const value = raw.replace(new RegExp(`^${label}(?:\\([^)]*\\))?\\s*=\\s*`), '').trim()
     return value || null
   } catch {
     return null
@@ -458,6 +467,12 @@ function runOne(
 
   const labels = readNames().filter((name) => !before.has(name))
   const assigned = command.match(/^\s*([A-Za-z][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s*[:=]/)?.[1]
+  const resultName = mode === 'cas' ? labels[0] ?? assigned : assigned
+  const value = (mode === 'scientific' || mode === 'probability' || mode === 'cas') && resultName ? resultValue(resultName) : null
+  if (mode === 'cas' && (!value || value === '?')) {
+    for (const label of labels) api.deleteObject?.(label)
+    return { command, status: 'failed', labels: [], error: 'CAS 未返回有效结果，请检查算式或命令参数。' }
+  }
   if (assigned) known.add(assigned)
   for (const label of labels) known.add(label)
   return {
@@ -465,7 +480,7 @@ function runOne(
     status: 'ok',
     labels,
     error: null,
-    value: (mode === 'scientific' || mode === 'probability') && assigned ? resultValue(assigned) : null,
+    value,
   }
 }
 
@@ -513,7 +528,7 @@ function runCommands(
     objects: listObjects(),
     hint: failed
       ? '有命令失败。请再次调用 applyCommands，只提交修正后的失败命令和尚未执行的命令，不要重复已成功的命令。'
-      : mode === 'scientific'
+      : mode === 'scientific' || mode === 'cas'
         ? '全部算式已成功。不要再调用工具。请用中文说明计算过程，并写出结果。'
         : mode === 'probability'
           ? '全部命令已成功。不要再调用工具。请用中文说明分布和概率，并写出结果。'

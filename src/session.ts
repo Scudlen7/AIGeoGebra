@@ -1,10 +1,11 @@
+import { modeList } from './modes'
 import type { CalculatorMode, ChatTurn, ConstructionReport, ModeSession, SessionMap } from './types'
 import type { CloudSession } from './api'
 
 export const sessionStorageKey = 'aiggb.sessions'
 export const modeStorageKey = 'aiggb.mode'
 
-const modeIds: CalculatorMode[] = ['geometry', '3d', 'probability', 'scientific']
+const modeIds = modeList.map(({ id }) => id)
 
 export function emptySession(): ModeSession {
   return { messages: [], input: '', report: null }
@@ -16,6 +17,8 @@ export function emptySessions(): SessionMap {
     '3d': emptySession(),
     probability: emptySession(),
     scientific: emptySession(),
+    graphing: emptySession(),
+    cas: emptySession(),
   }
 }
 

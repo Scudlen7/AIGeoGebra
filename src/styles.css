@@ -1099,6 +1099,8 @@ em {
 .dashboard-filters {
   display:flex;
   flex:none;
+  flex-wrap:wrap;
+  max-width:100%;
   gap:2px;
   padding:3px;
   background:var(--soft);
@@ -1928,7 +1930,7 @@ label {
 }
 .module-grid {
   display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
+  grid-template-columns:repeat(3,minmax(0,1fr));
   gap:var(--s3)
 }
 .module-card {
@@ -2034,7 +2036,8 @@ label {
     inset:auto 0 0
   }
   .modes button {
-    flex:1
+    flex:1;
+    padding-inline:clamp(2px,1vw,8px)
   }
   .workspace-topbar .user-menu>.btn {
     max-width:96px;

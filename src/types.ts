@@ -31,7 +31,7 @@ export type LlmStatus = {
   model: string
 }
 
-export type CalculatorMode = 'geometry' | '3d' | 'probability' | 'scientific'
+export type CalculatorMode = 'geometry' | '3d' | 'probability' | 'scientific' | 'graphing' | 'cas'
 
 export type AngleUnit = 'degree' | 'radian'
 

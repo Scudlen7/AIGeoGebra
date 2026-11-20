@@ -4,13 +4,15 @@ import { loadTs } from './load-ts.mjs'
 
 const board = await loadTs('src/board.ts')
 
-async function mount(perspective) {
+async function mount(perspective, appName = perspective ? 'classic' : 'geometry') {
   const listeners = new Map()
   const objects = new Map()
   const fake = {
     xml: '<geogebra><construction/></geogebra>',
     perspectives: [],
     setErrorDialogsActive() {},
+    evalCommandCAS: () => '2',
+    deleteObject: (name) => objects.delete(name),
     setSize() {},
     setPerspective(value) { this.perspective = value; this.perspectives.push(value) },
     setRounding(value) { this.rounding = value },
@@ -53,7 +55,7 @@ async function mount(perspective) {
     },
   }
   await board.mountBoard({ appendChild() {}, clientWidth: 800, clientHeight: 600 }, {
-    appName: perspective ? 'classic' : 'geometry', perspective,
+    appName, perspective,
     showToolBar: true, showAlgebraInput: true,
   })
   return { fake, emit, listeners }
@@ -146,4 +148,12 @@ test('probability sync resolves existing numeric variables and tolerates reorder
   assert.match(fake.xml, /<distribution type="14"/)
   assert.match(fake.xml, /<interval mode="2" low="4"/)
   assert.deepEqual(fake.perspectives, ['B', 'B'], 'refresh the distribution selector and cumulative toggle after XML sync')
+})
+
+test('CAS returns exact values and stops on an undefined result', async () => {
+  await mount(undefined, 'cas')
+  const report = board.executeCommands(['a = 10/21', 'b = ?', 'c = 1'], 'cas')
+  assert.deepEqual(report.results.map(item => item.status), ['ok', 'failed', 'skipped'])
+  assert.equal(report.results[0].value, '10/21')
+  assert.deepEqual(report.objects.map(item => item.name), ['a'])
 })
