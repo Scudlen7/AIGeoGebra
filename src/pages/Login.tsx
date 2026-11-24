@@ -2,7 +2,7 @@ import { A, useNavigate, useSearchParams } from '@solidjs/router'
 import { createSignal } from 'solid-js'
 import { AuthLayout } from '../AuthLayout'
 import { readableError, safeRedirect } from '../api'
-import { pb } from '../pb'
+import { signInWithPassword } from '../pb'
 
 export function Login() {
   const navigate = useNavigate()
@@ -12,6 +12,11 @@ export function Login() {
   const [error, setError] = createSignal('')
   const [busy, setBusy] = createSignal(false)
   const authLink = (path: string) => params.redirect ? `${path}?redirect=${encodeURIComponent(safeRedirect(params.redirect))}` : path
+  const description = () => {
+    if (params.reason === 'expired') return '登录会话已到期，请重新登录以继续使用工作台。'
+    if (params.reason === 'emailChanged') return '邮箱已更新，请用新邮箱重新登录。'
+    return '登录后继续你的会话和画板。'
+  }
 
   async function submit(event: Event) {
     event.preventDefault()
@@ -26,7 +31,7 @@ export function Login() {
     }
     setBusy(true)
     try {
-      await pb.collection('users').authWithPassword(email().trim().toLowerCase(), password())
+      await signInWithPassword(email().trim().toLowerCase(), password())
       navigate(safeRedirect(params.redirect), { replace: true })
     } catch (reason) {
       setError(readableError(reason, '邮箱或密码不正确'))
@@ -35,7 +40,7 @@ export function Login() {
   }
 
   return (
-    <AuthLayout title="欢迎回来" description="登录后继续你的会话和画板。" alternate={{ href: authLink('/register'), label: '注册' }}>
+    <AuthLayout title="欢迎回来" description={description()} alternate={{ href: authLink('/register'), label: '注册' }}>
       <form class="stack-form" onSubmit={(event) => void submit(event)}>
         <label>
           邮箱

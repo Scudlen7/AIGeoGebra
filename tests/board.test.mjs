@@ -139,6 +139,59 @@ test('a timed-out applet cannot replace the active API when loading eventually f
   assert.equal(board.getApi(), null)
 })
 
+test('a stalled GeoGebra script is discarded so a later board mount can retry', async () => {
+  const { fake } = await mount()
+  const scripts = []
+  const timers = new Map()
+  let timerId = 0
+  globalThis.document.head = { appendChild: (script) => scripts.push(script) }
+  globalThis.document.createElement = () => ({ style: {}, remove() { this.removed = true } })
+  globalThis.window = {
+    setTimeout(callback) { timers.set(++timerId, callback); return timerId },
+    clearTimeout(id) { timers.delete(id) },
+  }
+  const host = { appendChild() {} }
+  const options = { appName: 'geometry', showToolBar: true, showAlgebraInput: true }
+  const loading = board.mountBoard(host, options)
+  const expired = assert.rejects(loading, /超时/)
+  for (const run of timers.values()) run()
+  await expired
+  const retry = board.mountBoard(host, options)
+  assert.equal(scripts.length, 2, 'retry must request a new script')
+  assert.equal(scripts[0].removed, true)
+  window.GGBApplet = class {
+    constructor(parameters) { this.parameters = parameters }
+    inject() { this.parameters.appletOnLoad(fake) }
+  }
+  scripts[1].onload()
+  await retry
+  assert.equal(board.getApi(), fake)
+})
+
+test('CAS has time to initialize its symbolic engine after loading its UI', async () => {
+  const { fake } = await mount()
+  const timers = new Map()
+  let attempt = 0
+  fake.evalCommandCAS = () => ++attempt === 1 ? '' : '2'
+  globalThis.window = {
+    setTimeout(callback, delay) { timers.set(delay, callback); return delay },
+    clearTimeout(delay) { timers.delete(delay) },
+    GGBApplet: class {
+      constructor(parameters) { this.parameters = parameters }
+      inject() { this.parameters.appletOnLoad(fake) }
+    },
+  }
+  const loading = board.mountBoard({ appendChild() {} }, { appName: 'cas', showToolBar: true, showAlgebraInput: true })
+  await Promise.resolve()
+  assert.equal(board.getApi(), null)
+  assert.equal(timers.has(30_000), false, 'CAS initialization has a longer timeout than the loader script')
+  assert.equal(timers.has(60_000), true)
+  timers.get(100)()
+  await loading
+  assert.equal(board.getApi(), fake)
+  assert.equal(timers.has(60_000), false)
+})
+
 test('probability sync resolves existing numeric variables and tolerates reordered XML attributes', async () => {
   const { fake } = await mount('B')
   fake.evalCommand('n = 4')

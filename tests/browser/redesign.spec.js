@@ -10,7 +10,10 @@ const sampleSessions = ['三角形与高线', '圆与切线', '二次函数与�
 async function mockServices(page, authenticated = false) {
   if (authenticated) {
     const token = `x.${Buffer.from(JSON.stringify({ exp: 4102444800 })).toString('base64url')}.x`
-    await page.addInitScript(auth => localStorage.setItem('pocketbase_auth', JSON.stringify(auth)), { token, record: testAccount })
+    await page.addInitScript(auth => {
+      localStorage.setItem('pocketbase_auth.session.fixture', JSON.stringify({ ...auth, signedInAt: Date.now() }))
+      localStorage.setItem('pocketbase_auth.active', JSON.stringify('fixture'))
+    }, { token, record: testAccount })
   }
   await page.route('**/api/config', route => route.fulfill({ json: { pbUrl: 'http://pb.test' } }))
   await page.route('**/api/status', route => route.fulfill({ json: { configured: true, model: 'test' } }))
@@ -34,6 +37,27 @@ async function mockServices(page, authenticated = false) {
     inject(){this.options.appletOnLoad({setErrorDialogsActive(){},setSize(w,h){window.lastBoardSize=[w,h]},setAxesVisible(){},setGridVisible(){},getAllObjectNames(){return []},getXML(){return '<geogebra><construction/></geogebra>'},evalCommand(command){window.lastCommand=command;return true}})}
   }` }))
 }
+
+test('the public geometry example keeps its right angle as the keyboard moves P', async ({ page }) => {
+  await mockServices(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 320, height: 820 })
+  await page.goto('/')
+  const figure = page.getByRole('figure', { name: '直径所对的圆周角' })
+  const angle = figure.getByRole('slider', { name: '调整圆心角 ∠BOP' })
+  await expect(figure).toHaveCSS('animation-name', 'none')
+  await expect(angle).toHaveValue('54')
+  const triangle = figure.locator('.landing-plot-fill')
+  const before = await triangle.getAttribute('points')
+  await angle.press('End')
+  await expect(angle).toHaveAttribute('aria-valuetext', '165 度')
+  await expect(triangle).not.toHaveAttribute('points', before)
+  const [a, p, b] = await triangle.evaluate(({ points }) => Array.from(points, ({ x, y }) => ({ x, y })))
+  expect((a.x - p.x) * (b.x - p.x) + (a.y - p.y) * (b.y - p.y)).toBeCloseTo(0, 2)
+  await expect(figure.getByText('∠APB = 90°')).toBeVisible()
+  await expect(page.getByRole('link', { name: /函数绘图/ })).toHaveAttribute('href', '/try?mode=graphing')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+})
 
 test('mobile tabs preserve the board and draft; navigation and theme work', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

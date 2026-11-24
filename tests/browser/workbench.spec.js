@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { test, expect } from '@playwright/test'
 
 const owner = { id: 'workbench-user', name: '测试用户', model: 'test', collectionId: 'users', collectionName: 'users' }
@@ -30,7 +31,10 @@ async function mockServices(page, { showUsageReminder = false } = {}) {
   await page.route('**/api/providers', route => route.fulfill({ json: state.providers }))
   await page.route('http://pb.test/**', async route => {
     const request = route.request()
-    const path = new URL(request.url()).pathname
+    const url = new URL(request.url())
+    const path = url.pathname
+    const fields = url.searchParams.get('fields')?.split(',')
+    const project = record => fields ? Object.fromEntries(Object.entries(record).filter(([key]) => fields.includes(key))) : record
     if (path.endsWith('/auth-with-password') || path.endsWith('/auth-refresh') || path === '/api/auth/register') {
       return route.fulfill({ json: auth })
     }
@@ -44,7 +48,7 @@ async function mockServices(page, { showUsageReminder = false } = {}) {
       records.push(record)
       return route.fulfill({ json: record })
     }
-    if (path === base) return route.fulfill({ json: { page: 1, perPage: 100, totalItems: records.length, totalPages: 1, items: records } })
+    if (path === base) return route.fulfill({ json: { page: 1, perPage: 100, totalItems: records.length, totalPages: 1, items: records.map(project) } })
     const record = records.find(item => path === `${base}/${item.id}`)
     if (!record) return route.fulfill({ status: 404, json: { message: '会话不存在' } })
     if (request.method() === 'PATCH') {
@@ -55,7 +59,7 @@ async function mockServices(page, { showUsageReminder = false } = {}) {
       records.splice(records.indexOf(record), 1)
       return route.fulfill({ status: 204 })
     }
-    return route.fulfill({ json: record })
+    return route.fulfill({ json: project(record) })
   })
   await page.route('**/deployggb.js', route => route.fulfill({
     contentType: 'application/javascript',
@@ -85,6 +89,104 @@ async function signIn(page) {
   await page.getByLabel('密码', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: '登录', exact: true }).click()
 }
+
+test('idle authentication expires on an open workspace and signing in restores the session', async ({ page }) => {
+  await mockServices(page)
+  await page.clock.install()
+  await page.goto('/workspace?session=geometry-a')
+  await signIn(page)
+  await expect(page.getByText('几何甲的问题')).toBeVisible()
+
+  await page.clock.fastForward(20 * 60_000)
+  await page.keyboard.press('Shift')
+  await page.reload()
+  await page.clock.fastForward(20 * 60_000)
+  await expect(page.getByText('几何甲的问题')).toBeVisible()
+  await page.clock.fastForward(11 * 60_000)
+  await expect(page.getByText('登录会话已到期，请重新登录以继续使用工作台。')).toBeVisible()
+  await expect(page.getByText('几何甲的问题')).toHaveCount(0)
+  expect(await page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith('pocketbase_auth.session.')))).toBe(false)
+
+  await signIn(page)
+  await expect(page).toHaveURL(/\/workspace\?session=geometry-a$/)
+  await expect(page.getByText('几何甲的问题')).toBeVisible()
+})
+
+test('legacy credentials require sign-in and activity cannot extend authentication past eight hours', async ({ page }) => {
+  await mockServices(page)
+  await page.clock.install()
+  await page.addInitScript(legacyAuth => {
+    if (sessionStorage.getItem('legacy-fixture')) return
+    sessionStorage.setItem('legacy-fixture', '1')
+    localStorage.setItem('pocketbase_auth', JSON.stringify(legacyAuth))
+  }, auth)
+  await page.goto('/dashboard')
+  await expect(page.getByText('登录会话已到期，请重新登录以继续使用工作台。')).toBeVisible()
+  await signIn(page)
+  await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()
+
+  for (let i = 0; i < 19; i++) {
+    await page.clock.fastForward(25 * 60_000)
+    await page.keyboard.press('Shift')
+  }
+  await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()
+  await page.clock.fastForward(6 * 60_000)
+  await expect(page.getByText('登录会话已到期，请重新登录以继续使用工作台。')).toBeVisible()
+})
+
+test('returning after inactivity clears authentication across open tabs', async ({ page, context }) => {
+  await mockServices(page)
+  await page.clock.install()
+  await page.goto('/login')
+  await signIn(page)
+  await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()
+
+  const peer = await context.newPage()
+  await mockServices(peer)
+  await peer.goto('/settings/security')
+  await expect(peer.getByRole('heading', { name: '账户安全' })).toBeVisible()
+
+  await page.clock.setSystemTime(new Date(Date.now() + 31 * 60_000))
+  await page.goto('/dashboard')
+  await expect(page.getByRole('heading', { name: '欢迎回来' })).toBeVisible()
+  await expect(peer.getByRole('heading', { name: '欢迎回来' })).toBeVisible()
+  await expect(peer.getByRole('heading', { name: '账户安全' })).toHaveCount(0)
+})
+
+test('an activity write cannot replace a sign-in completed in another tab', async ({ page }) => {
+  await mockServices(page)
+  await page.goto('/login')
+  await signIn(page)
+  await expect(page.getByRole('button', { name: owner.name })).toBeVisible()
+
+  await page.evaluate(next => {
+    const original = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('pocketbase_auth.activity.')) {
+        Storage.prototype.setItem = original
+        original.call(this, 'pocketbase_auth.session.next', JSON.stringify({ ...next, signedInAt: Date.now() }))
+        original.call(this, 'pocketbase_auth.active', JSON.stringify('next'))
+      }
+      original.call(this, key, value)
+    }
+  }, { token, record: { ...owner, id: 'new-owner', name: '另一位用户' } })
+  await page.keyboard.press('Shift')
+  await expect(page.getByRole('button', { name: '另一位用户' })).toBeVisible()
+  await expect(page.getByRole('button', { name: owner.name })).toHaveCount(0)
+})
+
+test('changing email asks the user to sign in with the new address', async ({ page }) => {
+  await mockServices(page)
+  await page.route('http://pb.test/api/auth/change-email', route => route.fulfill({ json: { ok: true, email: 'new@example.test' } }))
+  await page.goto('/settings/security')
+  await signIn(page)
+  await page.getByRole('button', { name: '更换邮箱' }).click()
+  await page.getByLabel('新邮箱', { exact: true }).fill('new@example.test')
+  await page.getByLabel('新邮箱验证码').fill('1234')
+  await page.getByRole('button', { name: '更新邮箱' }).click()
+  await expect(page.getByText('邮箱已更新，请用新邮箱重新登录。')).toBeVisible()
+  expect(await page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith('pocketbase_auth.session.')))).toBe(false)
+})
 
 test('dashboard reminds users about trial limits until they dismiss it for today', async ({ page }) => {
   await mockServices(page, { showUsageReminder: true })
@@ -148,7 +250,7 @@ test('graphing and CAS reopen their own workspaces from dashboard history', asyn
 test('homepage and trial are public; a legacy history link requires login and opens the same session', async ({ page }) => {
   await mockServices(page)
   await page.goto('/')
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('看得见')
+  await expect(page.getByRole('heading', { level: 1, name: /构造数学模型/ })).toBeVisible()
   await expect(page.locator('.board-host')).toHaveCount(0)
   await page.getByRole('link', { name: '游客试用' }).click()
   await expect(page).toHaveURL(/\/try$/)
@@ -288,6 +390,12 @@ test('workbench groups history and restores the selected drawing through a faile
 
 test('dashboard shows usage and a compact paginated history with session actions', async ({ page }) => {
   const state = await mockServices(page)
+  const listPath = '/api/collections/sessions/records'
+  const sessionRequests = []
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname.startsWith(listPath) && request.method() === 'GET') sessionRequests.push(url)
+  })
   state.usage = {
     requests: 15,
     tokens: 2536,
@@ -314,6 +422,8 @@ test('dashboard shows usage and a compact paginated history with session actions
   const history = main.getByRole('region', { name: '历史会话' })
   const rows = history.locator('.session-list').getByRole('listitem')
   await expect(rows).toHaveCount(5)
+  expect(sessionRequests.map(url => url.searchParams.get('fields'))).toContain('id,name,mode,created,updated')
+  expect(sessionRequests.every(url => url.pathname === listPath && url.searchParams.has('fields'))).toBe(true)
   await expect(rows.first().locator('time')).toHaveAttribute('datetime', '2026-11-06T08:15:00.000Z')
   await history.getByRole('button', { name: '下一页' }).click()
   await expect(rows).toHaveCount(1)
@@ -323,9 +433,20 @@ test('dashboard shows usage and a compact paginated history with session actions
   await expect(rows.first()).toContainText('几何乙')
   await expect(history.getByRole('button', { name: '导出', exact: true })).toBeHidden()
   await rows.first().getByRole('button', { name: /更多操作/ }).click()
+  const detailPath = `${listPath}/geometry-b`
+  await page.route(`http://pb.test${detailPath}`, route => route.fulfill({ status: 503, json: { message: '会话暂不可用' } }), { times: 1 })
+  await history.getByRole('button', { name: '导出', exact: true }).click()
+  await expect(history.getByRole('alert')).toHaveText('会话暂不可用')
   const download = page.waitForEvent('download')
   await history.getByRole('button', { name: '导出', exact: true }).click()
-  expect((await download).suggestedFilename()).toBe('session-几何乙.json')
+  const exported = await download
+  expect(exported.suggestedFilename()).toBe('session-几何乙.json')
+  expect(sessionRequests.filter(url => url.pathname !== listPath).map(url => url.pathname)).toEqual([detailPath, detailPath])
+  expect(JSON.parse(await readFile(await exported.path(), 'utf8'))).toEqual({
+    id: 'geometry-b', name: '几何乙', mode: 'geometry', input: '', updated: '2026-11-06 08:15:00.000Z',
+    messages: [{ role: 'user', content: '几何乙的问题' }],
+    report: { boardXml: xml('B'), objects: [], results: [], hint: '' },
+  })
   await history.getByRole('button', { name: '重命名', exact: true }).click()
   await history.getByLabel('新会话名称').fill('新的几何标题')
   await history.getByRole('button', { name: '保存', exact: true }).click()
@@ -619,4 +740,32 @@ test('a failed first save recovers the draft and its title after reload without 
   await expect(page).toHaveURL(/session=new-session$/)
   expect(state.records).toHaveLength(6)
   expect(state.records[5].name).toBe('三角形')
+})
+
+test('a guest module link opens the chosen board and an example fills an editable draft', async ({ page }) => {
+  await mockServices(page)
+  await replyWithText(page)
+  await page.addInitScript(() => localStorage.setItem('aiggb.mode', JSON.stringify('geometry')))
+  await page.goto('/try?mode=graphing')
+  const modes = page.getByRole('navigation', { name: '计算器模式' })
+  await expect(modes.getByRole('button', { name: '绘图', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const prompt = page.getByLabel('描述你的问题')
+  const first = '画出 y=x² 和 y=4，并标出交点'
+  await page.getByRole('button', { name: first }).click()
+  await expect(prompt).toBeFocused()
+  await expect(prompt).toHaveValue(first)
+  await expect(page.locator('.transcript article')).toHaveCount(0)
+  await expect(page.getByText('试试示例问题', { exact: true })).toBeHidden()
+  const edited = first.replace('y=4', 'y=9')
+  await prompt.fill(edited)
+  await modes.getByRole('button', { name: '几何', exact: true }).click()
+  await expect(page).toHaveURL(/\/try\?mode=geometry$/)
+  await modes.getByRole('button', { name: '绘图', exact: true }).click()
+  await expect(page).toHaveURL(/\/try\?mode=graphing$/)
+  await page.reload()
+  await expect(prompt).toHaveValue(edited)
+  await expect(page.locator('.composer-send')).toBeEnabled()
+  await prompt.press('Enter')
+  await expect(page.locator('.transcript .user')).toHaveText(edited)
+  await expect(page.locator('.transcript .assistant')).toContainText('请确认需要标注哪些顶点。')
 })

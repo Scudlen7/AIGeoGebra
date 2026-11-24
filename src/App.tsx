@@ -36,7 +36,7 @@ function emptyCloudMap(): Record<CalculatorMode, CloudSession> {
   }
 }
 
-export function App(props: { sessionId?: string; draftId?: string; initialMode?: CalculatorMode; initialName?: string; onSessionSaved?: (id: string) => void; onModeChange?: (mode: CalculatorMode) => void }) {
+export function App(props: { sessionId?: string; draftId?: string; initialMode?: CalculatorMode; initialName?: string; onSessionSaved?: (id: string) => void; onModeChange?: (mode: CalculatorMode) => void; onTrialModeChange?: (mode: CalculatorMode) => void }) {
   migrateLegacyStorage()
   const [loadingModels, setLoadingModels] = createSignal(true)
   const [savingModel, setSavingModel] = createSignal(false)
@@ -337,6 +337,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
     setAttempts(0)
     setRunning(false)
     setMode(next)
+    props.onTrialModeChange?.(next)
     setWorkspaceReady(false)
     if (loggedIn()) {
       try {
@@ -467,7 +468,8 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
     onCleanup(stop)
 
     void loadModels()
-    if (!isCalculatorMode(mode())) setMode('geometry')
+    if (!authSeen && props.initialMode) setMode(props.initialMode)
+    else if (!isCalculatorMode(mode())) setMode('geometry')
     void loadWorkspace()
   })
 
@@ -534,7 +536,18 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
     copyTimer = window.setTimeout(() => setCopied(''), 1200)
   }
 
-  async function submit(text = activeSession().input.trim()) {
+  function setInput(input: string) {
+    patchWorkspace(activeMode(), { input })
+    scheduleSync()
+  }
+
+  function fillExample(example: string) {
+    setInput(example)
+    inputEl?.focus()
+  }
+
+  async function submit() {
+    const text = activeSession().input.trim()
     const id = activeMode()
     const model = requestModel()
     if (!text || running() || !boardReady() || !model || savingModel() || !modeDefinition(id).ready) return
@@ -655,23 +668,15 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
         <section class="conversation">
           <div class="conversation-heading"><Icon name="chat-circle-text" />与数学助手对话</div>
           <div class="rule" />
-          <Show when={workspaceReady() && !activeSession().id && !activeSession().messages.length}>
-          <details class="example-picker">
-          <summary>试试示例问题</summary>
-          <div class="examples">
-            <For each={current().examples}>
-              {(example) => (
-                <button
-                  type="button"
-                  disabled={running() || !boardReady() || !canUseModel()}
-                  onClick={() => void submit(example)}
-                >
-                  {example}
-                </button>
-              )}
-            </For>
-          </div>
-          </details>
+          <Show when={workspaceReady() && !activeSession().id && !activeSession().messages.length && !activeSession().input.trim()}>
+            <details class="example-picker">
+              <summary>试试示例问题</summary>
+              <div class="examples">
+                <For each={current().examples.slice(1)}>
+                  {(example) => <button type="button" onClick={() => fillExample(example)}>{example}</button>}
+                </For>
+              </div>
+            </details>
           </Show>
 
           <div class="transcript">
@@ -684,7 +689,9 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
                       <h2>今天，想探索什么？</h2>
                       <Show when={!activeSession().id} fallback={<p class="lede">在下方输入问题，继续使用当前会话。</p>}>
                         <p class="lede">{modeDefinition(id).empty}</p>
-                        <div class="examples"><button disabled={running() || !boardReady() || !canUseModel()} onClick={() => void submit(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div>
+                        <Show when={!activeSession().input.trim()}>
+                          <div class="examples"><button type="button" onClick={() => fillExample(modeDefinition(id).examples[0])}>{modeDefinition(id).examples[0]}<Icon name="arrow-right" /></button></div>
+                        </Show>
                       </Show>
                     </div>
                   </Show>
@@ -743,10 +750,7 @@ export function App(props: { sessionId?: string; draftId?: string; initialMode?:
               placeholder={current().placeholder}
               aria-describedby={current().ready && !boardReady() ? 'composer-board-status' : undefined}
               disabled={running() || !workspaceReady()}
-              onInput={(event) => {
-                patchWorkspace(activeMode(), { input: event.currentTarget.value })
-                scheduleSync()
-              }}
+              onInput={(event) => setInput(event.currentTarget.value)}
               onKeyDown={onKeyDown}
             />
             <div class="composer-actions">

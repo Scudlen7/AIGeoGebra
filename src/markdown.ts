@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify'
 import { Marked } from 'marked'
 import markedKatex from 'marked-katex-extension'
+import 'katex/dist/katex.min.css'
 
 const marked = new Marked()
 marked.use(
