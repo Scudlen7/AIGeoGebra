@@ -2,7 +2,6 @@
 import { Navigate, Route, Router, useLocation, useNavigate, useSearchParams } from '@solidjs/router'
 import { Show, Suspense, createMemo, createSignal, lazy, type ParentProps } from 'solid-js'
 import { render } from 'solid-js/web'
-import 'katex/dist/katex.min.css'
 import { Forgot } from './pages/Forgot'
 import { Home } from './pages/Home'
 import { Privacy, Terms } from './pages/Legal'
@@ -14,7 +13,7 @@ import { DataSettings } from './pages/settings/Data'
 import { ModelSettings } from './pages/settings/Models'
 import { SecuritySettings } from './pages/settings/Security'
 import { NotFound } from './pages/NotFound'
-import { authUser, initPb, loggedIn } from './pb'
+import { authSessionEnd, authUser, initPb, loggedIn } from './pb'
 import { isCalculatorMode } from './modes'
 import { workspacePath } from './api'
 import './styles.css'
@@ -44,9 +43,15 @@ function AccountService(props: ParentProps) {
 
 function RequireAccount(props: ParentProps) {
   const location = useLocation()
+  const loginPath = () => {
+    const query = new URLSearchParams({ redirect: location.pathname + location.search + location.hash })
+    const reason = authSessionEnd()
+    if (reason) query.set('reason', reason)
+    return `/login?${query}`
+  }
   return (
     <AccountService>
-      <Show when={loggedIn() && authUser()?.id} keyed fallback={<Navigate href={() => `/login?redirect=${encodeURIComponent(location.pathname + location.search + location.hash)}`} />}>
+      <Show when={loggedIn() && authUser()?.id} keyed fallback={<Navigate href={loginPath} />}>
         {(_owner) => props.children}
       </Show>
     </AccountService>
@@ -88,10 +93,14 @@ function Workspace() {
 }
 
 function Trial() {
+  const [params, setParams] = useSearchParams()
+  const initialMode = () => isCalculatorMode(params.mode) ? params.mode : undefined
   return (
     <Show when={configState() !== 'loading'} fallback={<main class="page" role="status">正在打开游客工作区…</main>}>
-      <Show when={!loggedIn()} fallback={<Navigate href="/dashboard" />}>
-        <Suspense fallback={<main class="page" role="status">正在打开游客工作区…</main>}><App /></Suspense>
+      <Show when={!loggedIn()} fallback={<Navigate href={() => initialMode() ? `/dashboard?mode=${initialMode()}` : '/dashboard'} />}>
+        <Suspense fallback={<main class="page" role="status">正在打开游客工作区…</main>}>
+          <App initialMode={initialMode()} onTrialModeChange={(mode) => setParams({ mode }, { replace: true, scroll: false })} />
+        </Suspense>
       </Show>
     </Show>
   )

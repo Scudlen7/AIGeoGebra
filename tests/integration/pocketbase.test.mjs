@@ -122,6 +122,19 @@ test('real PocketBase account, email, session and usage integration', { timeout:
     bob = await register('bob@example.test', '测试乙')
     assert.equal((await post('/api/collections/users/records', { email: 'bypass@example.test', password, passwordConfirm: password })).status, 403)
   })
+  await t.test('registration and password login issue nonrenewable eight-hour tokens', async () => {
+    const login = await post('/api/collections/users/auth-with-password', { identity: email, password })
+    assert.equal(login.status, 200)
+    for (const { token } of [alice, login.data]) {
+      const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString())
+      const secondsLeft = claims.exp - Math.floor(Date.now() / 1000)
+      assert.ok(secondsLeft > 8 * 60 * 60 - 30 && secondsLeft <= 8 * 60 * 60)
+      assert.equal(claims.refreshable, false)
+      const refresh = await post('/api/collections/users/auth-refresh', {}, token)
+      assert.equal(refresh.status, 200)
+      assert.equal(refresh.data.token, token)
+    }
+  })
   await t.test('five wrong attempts invalidate a code', async () => {
     const address = 'attempts@example.test'
     assert.equal((await post('/api/auth/request-code', { email: address, purpose: 'register' })).status, 200)
@@ -298,6 +311,7 @@ test('real PocketBase account, email, session and usage integration', { timeout:
     const body = { email: nextEmail, code: lastCode() }
     assert.equal((await post('/api/auth/change-email', body, bob.token)).status, 400)
     assert.equal((await post('/api/auth/change-email', body, alice.token)).status, 200)
+    assert.equal((await post('/api/collections/users/auth-refresh', {}, alice.token)).status, 401)
     const login = await post('/api/collections/users/auth-with-password', { identity: nextEmail, password: `${password}-reset` })
     assert.equal(login.status, 200)
     alice = login.data

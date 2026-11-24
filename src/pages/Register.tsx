@@ -2,7 +2,7 @@ import { A, useNavigate, useSearchParams } from '@solidjs/router'
 import { createSignal, onCleanup } from 'solid-js'
 import { AuthLayout } from '../AuthLayout'
 import { postAuth, readableError, retryAfterOf, safeRedirect } from '../api'
-import { pb } from '../pb'
+import { startAuthSession } from '../pb'
 
 export function Register() {
   const navigate = useNavigate()
@@ -81,8 +81,7 @@ export function Register() {
         password: password(),
         passwordConfirm: passwordConfirm(),
       })
-      pb.authStore.save(String(data.token || ''), data.record as never)
-      await pb.collection('users').authRefresh()
+      startAuthSession(String(data.token || ''), data.record as never)
       navigate(safeRedirect(params.redirect), { replace: true })
     } catch (reason) {
       setError(readableError(reason, '注册失败'))

@@ -46,6 +46,7 @@ type GgbApi = {
 
 const SCRIPT_URL = 'https://www.geogebra.org/apps/deployggb.js'
 const GEOGEBRA_CODEBASE = 'https://www.geogebra.org/apps/5.4.931.2/web3d/'
+const LOAD_TIMEOUT = 30_000
 
 export type BoardOptions = {
   appName: string
@@ -71,11 +72,21 @@ function loadScript() {
       const script = document.createElement('script')
       script.src = SCRIPT_URL
       script.async = true
-      script.onload = () => resolve()
-      script.onerror = () => {
+      function finish(error?: string) {
+        window.clearTimeout(timeout)
+        script.onload = null
+        script.onerror = null
         scriptReady = null
-        reject(new Error('GeoGebra 脚本加载失败'))
+        if (error) {
+          script.remove()
+          reject(new Error(error))
+        } else {
+          resolve()
+        }
       }
+      const timeout = window.setTimeout(() => finish('GeoGebra 脚本加载超时，请检查能否访问 geogebra.org'), LOAD_TIMEOUT)
+      script.onload = () => finish(window.GGBApplet ? undefined : 'GeoGebra 脚本已加载，但没有暴露 GGBApplet')
+      script.onerror = () => finish('GeoGebra 脚本加载失败')
       document.head.appendChild(script)
     })
   }
@@ -176,6 +187,7 @@ export function mountBoard(host: HTMLElement, options: BoardOptions): Promise<vo
   host.appendChild(target)
   slot = target
 
+  const script = loadScript()
   return new Promise((resolve, reject) => {
     let settled = false
     let timeout = 0
@@ -185,14 +197,6 @@ export function mountBoard(host: HTMLElement, options: BoardOptions): Promise<vo
       window.clearTimeout(timeout)
       callback()
     }
-    timeout = window.setTimeout(() => {
-      if (token !== mountToken) {
-        finish(() => resolve())
-        return
-      }
-      finish(() => reject(new Error('画板加载超时，请检查能否访问 geogebra.org')))
-    }, 30000)
-
     const start = () => {
       if (settled) return
       if (token !== mountToken) {
@@ -203,6 +207,13 @@ export function mountBoard(host: HTMLElement, options: BoardOptions): Promise<vo
         finish(() => reject(new Error('GeoGebra 脚本已加载，但没有暴露 GGBApplet')))
         return
       }
+      timeout = window.setTimeout(() => {
+        if (token !== mountToken) {
+          finish(() => resolve())
+          return
+        }
+        finish(() => reject(new Error('画板加载超时，请检查能否访问 geogebra.org')))
+      }, options.appName === 'cas' ? 60_000 : LOAD_TIMEOUT)
       const hostWidth = host.clientWidth || 800
       const hostHeight = host.clientHeight || 640
       const applet = new window.GGBApplet(
@@ -248,7 +259,7 @@ export function mountBoard(host: HTMLElement, options: BoardOptions): Promise<vo
       applet.inject(target)
     }
 
-    loadScript()
+    script
       .then(() => start())
       .catch((reason: unknown) => {
         if (token !== mountToken) {

@@ -1,6 +1,6 @@
 import { Show, createSignal, onCleanup } from 'solid-js'
 import { postAuth, readableError, retryAfterOf } from '../../api'
-import { authUser, pb } from '../../pb'
+import { authUser, endSessionAfterEmailChange, pb, signInWithPassword } from '../../pb'
 
 type Editor = 'name' | 'email' | 'password'
 
@@ -109,7 +109,7 @@ export function SecuritySettings() {
     const token = pb.authStore.token
     void saveChange(async () => {
       await postAuth('/api/auth/change-email', { email: email().trim().toLowerCase(), code: code().trim() }, true)
-      if (pb.authStore.token === token) await pb.collection('users').authRefresh()
+      if (pb.authStore.token === token) endSessionAfterEmailChange()
     }, '邮箱已更新', '邮箱更新失败')
   }
 
@@ -134,7 +134,7 @@ export function SecuritySettings() {
         passwordConfirm: passwordConfirm(),
       })
       if (pb.authStore.token === token && authUser()?.id === user.id) {
-        await pb.collection('users').authWithPassword(String(user.email || ''), nextPassword)
+        await signInWithPassword(String(user.email || ''), nextPassword, token)
       }
     }, '密码已更新', '密码更新失败')
   }

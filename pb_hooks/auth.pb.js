@@ -198,8 +198,13 @@ authRoute("POST", "/api/auth/register", `
     if (findUserByEmail(e.app, email)) throw new BadRequestError("该邮箱已注册")
     throw new BadRequestError("注册失败，请稍后重试")
   }
-  return e.json(200, { token: user.newAuthToken(), record: user })
+  return e.json(200, { token: user.newStaticAuthToken(0), record: user })
 `, $apis.skipSuccessActivityLog())
+
+onRecordAuthRequest((e) => {
+  if (e.authMethod === "password") e.token = e.record.newStaticAuthToken(0)
+  e.next()
+}, "users")
 
 authRoute("POST", "/api/auth/reset-password", `
   var body = bodyOf(e)

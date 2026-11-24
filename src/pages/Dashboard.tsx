@@ -1,6 +1,5 @@
 import { A, useNavigate, useSearchParams } from '@solidjs/router'
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
-import type { RecordModel } from 'pocketbase'
 import { AccountBar } from '../AccountBar'
 import { Icon } from '../Icon'
 import { draftWorkspacePath, downloadJson, fetchSummary, readableError, sessionExport, workspacePath, type UsageSummary } from '../api'
@@ -10,8 +9,9 @@ import { fetchProviders } from '../providers'
 import { readPendingSession, writePendingCloud } from '../session'
 import type { CalculatorMode } from '../types'
 
-type SessionRecord = RecordModel & { name: string; mode: CalculatorMode }
+type SessionRecord = { id: string; name: string; mode: CalculatorMode; created?: string; updated?: string }
 
+const sessionFields = 'id,name,mode,created,updated'
 const pageSize = 5
 const countFormat = new Intl.NumberFormat('zh-CN')
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short', hourCycle: 'h23' })
@@ -106,7 +106,7 @@ export function Dashboard() {
     setLoading(true)
     setListError('')
     try {
-      const list = await pb.collection('sessions').getFullList<SessionRecord>({ sort: '-updated' })
+      const list = await pb.collection('sessions').getFullList<SessionRecord>({ fields: sessionFields, sort: '-updated' })
       if (!disposed) setSessions(list)
     } catch (reason) {
       if (!disposed) setListError(readableError(reason, '会话读取失败'))
@@ -183,7 +183,7 @@ export function Dashboard() {
     setUpdating(true)
     setActionError('')
     try {
-      const updated = await pb.collection('sessions').update<SessionRecord>(item.id, { name: title })
+      const updated = await pb.collection('sessions').update<SessionRecord>(item.id, { name: title }, { fields: sessionFields })
       const pending = readPendingSession(owner, item.id)
       if (pending) writePendingCloud(owner, pending.mode, { ...pending, name: title })
       if (disposed) return
@@ -209,6 +209,22 @@ export function Dashboard() {
       showPage(currentPage())
     } catch (reason) {
       if (!disposed) setActionError(readableError(reason, '删除失败'))
+    } finally {
+      if (!disposed) setUpdating(false)
+    }
+  }
+
+  async function exportSession(item: SessionRecord) {
+    const owner = authUser()?.id
+    if (!owner || updating()) return
+    setUpdating(true)
+    setActionError('')
+    try {
+      const record = await pb.collection('sessions').getOne(item.id)
+      if (disposed || authUser()?.id !== owner) return
+      downloadJson(`session-${record.name || record.id}.json`, sessionExport(record))
+    } catch (reason) {
+      if (!disposed) setActionError(readableError(reason, '导出会话失败，请重试'))
     } finally {
       if (!disposed) setUpdating(false)
     }
@@ -282,8 +298,8 @@ export function Dashboard() {
                           </div>
                           <Show when={expanded() === item.id}>
                             <Show when={editing()} fallback={<div class="dashboard-session-actions">
-                              <button class="btn ghost" type="button" onClick={() => { setDraftName(item.name || ''); setEditing(true) }}>重命名</button>
-                              <button class="btn ghost" type="button" onClick={() => downloadJson(`session-${item.name || item.id}.json`, sessionExport(item))}>导出</button>
+                              <button class="btn ghost" type="button" disabled={updating()} onClick={() => { setDraftName(item.name || ''); setEditing(true) }}>重命名</button>
+                              <button class="btn ghost" type="button" disabled={updating()} onClick={() => void exportSession(item)}>{updating() ? '处理中…' : '导出'}</button>
                               <button class="btn ghost dashboard-delete" type="button" disabled={updating()} onClick={() => void remove(item)}>删除</button>
                             </div>}>
                               <form class="dashboard-session-actions" onSubmit={(event) => void rename(event, item)}>

@@ -5,7 +5,10 @@ for (const width of [1440, 1024, 390, 320]) {
     let failSave = false
     await page.setViewportSize({ width, height: 900 })
     const token = `x.${Buffer.from(JSON.stringify({ exp: 4102444800 })).toString('base64url')}.x`
-    await page.addInitScript(({ token }) => localStorage.setItem('pocketbase_auth', JSON.stringify({ token, record: { id: 'layout-user', name: '测试用户', model: 'test' } })), { token })
+    await page.addInitScript(({ token }) => {
+      localStorage.setItem('pocketbase_auth.session.fixture', JSON.stringify({ token, record: { id: 'layout-user', name: '测试用户', model: 'test' }, signedInAt: Date.now() }))
+      localStorage.setItem('pocketbase_auth.active', JSON.stringify('fixture'))
+    }, { token })
     await page.route('**/api/config', route => route.fulfill({ json: { pbUrl: 'http://pb.test' } }))
     await page.route('**/api/status', route => route.fulfill({ json: { configured: true, model: 'test' } }))
     await page.route('**/api/models', route => route.fulfill({ json: [{ id: 'test', label: '一个用于检查长名称布局的测试模型', gateway: false }] }))

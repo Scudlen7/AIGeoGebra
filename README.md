@@ -84,7 +84,7 @@
 ### 2.2 自然语言驱动
 
 - 支持中文自然语言描述，无需记忆 GeoGebra 语法；
-- 每个模式都有内置示例，点击即可执行；
+- 点击内置示例会填入输入框，可修改题目后再发送；
 - 模型输出支持 Markdown 与 KaTeX 公式，`$...$` 行内公式、`$$...$$` 块级公式均可渲染。
 
 ### 2.3 命令自动执行与纠错
@@ -426,6 +426,8 @@ D:\pocketbase\pocketbase.exe serve --http=127.0.0.1:8090 --dir D:\pocketbase\pb_
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
+
+登录会话在浏览器空闲 30 分钟或登录满 8 小时后到期。升级后用上述参数重启 PocketBase，应用 `1792400005_user_token_duration.js`，使新签发的用户令牌同样遵守 8 小时上限。
 
 ---
 
